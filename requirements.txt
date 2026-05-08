@@ -1,0 +1,41 @@
+# ── VaultIQ runtime dependencies ──────────────────────────────────────────────
+# Core LangChain stack
+langchain>=0.3.20
+langchain-core>=0.3.40
+langchain-openai>=0.3.0
+langchain-community>=0.3.20
+langchain-voyageai>=0.1.4
+
+# MongoDB integrations
+langchain-mongodb>=0.7.0
+pymongo>=4.10.0
+
+# LangGraph orchestration + Mongo checkpoint/store
+langgraph>=0.6.0
+langgraph-checkpoint-mongodb>=0.1.4
+langgraph-store-mongodb>=0.1.0
+
+# Deep Agents (a2a / sub-agents pattern)
+deepagents>=0.0.10
+
+# MCP integration (MongoDB MCP server bridge)
+langchain-mcp-adapters>=0.1.0
+mcp>=1.2.0
+
+# LangSmith observability
+langsmith>=0.2.0
+
+# UI
+streamlit>=1.40.0
+streamlit-autorefresh>=1.0.1
+plotly>=5.24.0
+pydeck>=0.9.1
+
+# Data + utilities
+pandas>=2.2.0
+numpy>=1.26.0
+faker>=30.0.0
+python-dotenv>=1.0.1
+pydantic>=2.9.0
+pydantic-settings>=2.6.0
+tenacity>=9.0.0

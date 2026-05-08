@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vaultiq"
+version = "0.1.0"
+description = "VaultIQ — NextGen AI Financial Intelligence (LangGraph + MongoDB Atlas)"
+requires-python = ">=3.11"
+dynamic = ["dependencies"]
+
+[tool.setuptools.dynamic]
+dependencies = { file = ["requirements.txt"] }
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["src*", "data*", "scripts*"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"

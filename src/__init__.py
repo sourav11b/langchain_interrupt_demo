@@ -1,0 +1,1 @@
+"""src/ — VaultIQ namespace root."""
