@@ -1,0 +1,260 @@
+"""VaultIQ — NiceGUI live operations dashboard.
+
+NiceGUI replaces the previous Streamlit dashboard. The reactive model means
+long-running agent calls run in a thread-pool without blocking the event loop,
+and any per-component error is shown as a toast — never a blank page.
+"""
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+from datetime import datetime, timezone
+
+from nicegui import app, ui
+
+from src.vaultiq.logging_setup import configure_logging
+from src.vaultiq.scenarios.injector import SCENARIOS, build_scenario_transaction
+from src.vaultiq.tools._common import jsonable
+from src.vaultiq.ui.stream_runner import (
+    execute_through_agents,
+    fetch_collection_counts,
+    fetch_recent_case_events,
+    fetch_recent_cases,
+    generate_baseline_transaction,
+)
+
+configure_logging()
+log = logging.getLogger(__name__)
+
+
+# ── process-wide state (single-tenant demo) ──────────────────────────────────
+STATE: dict = {
+    "runs": [],            # newest first, list of {tx, result}
+    "auto_run": False,
+    "selected_case": None,
+    "running_jobs": 0,
+}
+
+AGENT_COLOR = {
+    "fraud_sentinel":  "#ff6b6b",
+    "customer_trust":  "#ffa94d",
+    "case_resolution": "#4dabf7",
+    "memory_writer":   "#82c91e",
+}
+
+
+# ── async helpers (off-loop blocking work) ───────────────────────────────────
+async def _run_in_pool(fn, *args):
+    return await asyncio.get_running_loop().run_in_executor(None, fn, *args)
+
+
+async def inject_one(scenario_id: str) -> None:
+    STATE["running_jobs"] += 1
+    try:
+        tx = await _run_in_pool(build_scenario_transaction, scenario_id)
+        ui.notify(f"Running {tx['tx_id']} through 3-agent flow…", type="ongoing", timeout=2000)
+        result = await _run_in_pool(execute_through_agents, tx)
+        STATE["runs"].insert(0, {"tx": tx, "result": result})
+        STATE["runs"][:] = STATE["runs"][:25]
+        score = (result.get("fraud") or {}).get("score")
+        case_id = (result.get("case") or {}).get("case_id")
+        ui.notify(
+            f"✅ {tx['tx_id']}  score={score}  case={case_id or '—'}",
+            type="positive", timeout=4000,
+        )
+    except Exception as exc:
+        log.exception("inject_one failed")
+        ui.notify(f"❌ inject failed: {exc}", type="negative", timeout=8000)
+    finally:
+        STATE["running_jobs"] -= 1
+
+
+async def stream_tick() -> None:
+    if not STATE["auto_run"] or STATE["running_jobs"] > 0:
+        return
+    STATE["running_jobs"] += 1
+    try:
+        tx = await _run_in_pool(generate_baseline_transaction)
+        result = await _run_in_pool(execute_through_agents, tx)
+        STATE["runs"].insert(0, {"tx": tx, "result": result})
+        STATE["runs"][:] = STATE["runs"][:25]
+    except Exception as exc:
+        log.exception("stream_tick failed")
+        ui.notify(f"⚠ stream tick failed: {exc}", type="warning", timeout=4000)
+    finally:
+        STATE["running_jobs"] -= 1
+
+
+def _safe_dt(value, fmt: str = "%H:%M:%S") -> str:
+    try:
+        return value.strftime(fmt)
+    except Exception:
+        return str(value) if value is not None else "—"
+
+
+def _runs_table_rows() -> list[dict]:
+    out: list[dict] = []
+    for r in STATE["runs"][:25]:
+        tx, res = r["tx"], r["result"]
+        f = res.get("fraud") or {}
+        c = res.get("case") or {}
+        out.append({
+            "ts":          _safe_dt(tx.get("ts")),
+            "tx_id":       tx.get("tx_id"),
+            "scenario":    tx.get("scenario_label", "—"),
+            "customer":    tx.get("customer_id"),
+            "amount":      tx.get("amount"),
+            "country":     tx.get("country"),
+            "score":       f.get("score"),
+            "band":        f.get("band"),
+            "case":        c.get("case_id") or "—",
+            "case_status": c.get("status") or "—",
+        })
+    return out
+
+
+TX_COLUMNS = [
+    {"name": "ts",          "label": "time",      "field": "ts",          "align": "left"},
+    {"name": "tx_id",       "label": "tx_id",     "field": "tx_id",       "align": "left"},
+    {"name": "scenario",    "label": "scenario",  "field": "scenario",    "align": "left"},
+    {"name": "customer",    "label": "customer",  "field": "customer",    "align": "left"},
+    {"name": "amount",      "label": "amt",       "field": "amount",      "align": "right"},
+    {"name": "country",     "label": "ctry",      "field": "country",     "align": "left"},
+    {"name": "score",       "label": "score",     "field": "score",       "align": "right"},
+    {"name": "band",        "label": "band",      "field": "band",        "align": "left"},
+    {"name": "case",        "label": "case",      "field": "case",        "align": "left"},
+    {"name": "case_status", "label": "status",    "field": "case_status", "align": "left"},
+]
+
+
+# ── page ─────────────────────────────────────────────────────────────────────
+@ui.page("/")
+def index() -> None:
+    ui.dark_mode().enable()
+    ui.add_head_html("<style>.q-table tbody td{font-size:.78rem}.q-table thead th{font-size:.78rem;font-weight:600}</style>")
+
+    # ── header ─────────────────────────────────────────────────────────────
+    with ui.header(elevated=True).classes("items-center bg-slate-900 text-white"):
+        ui.label("🛡️ VaultIQ").classes("text-2xl font-bold")
+        ui.label("NextGen AI Financial Intelligence — MongoDB Atlas · LangGraph · LangSmith") \
+            .classes("text-xs opacity-70 ml-3")
+        ui.space()
+        running_lbl = ui.label().classes("text-xs opacity-70 mr-4")
+        clock_lbl = ui.label().classes("text-xs opacity-70")
+
+        def _tick_header():
+            running_lbl.set_text(f"jobs: {STATE['running_jobs']}")
+            clock_lbl.set_text(datetime.now(tz=timezone.utc).strftime("%H:%M:%S UTC"))
+
+        ui.timer(1.0, _tick_header)
+
+    # ── sidebar ────────────────────────────────────────────────────────────
+    with ui.left_drawer(value=True, fixed=True).classes("bg-slate-800 text-white p-4 w-72"):
+        ui.label("⚙️ Controls").classes("text-lg font-semibold mb-2")
+
+        live_sw = ui.switch("Live stream (one tx / 6 s)", value=False)
+        live_sw.on_value_change(lambda e: STATE.update(auto_run=bool(e.value)))
+
+        ui.label("Inject scenario").classes("mt-4 font-semibold")
+        scenario_options = {s.id: f"{s.label}  · hint {s.risk_hint}" for s in SCENARIOS}
+        scenario_sel = ui.select(scenario_options, value="ato_sim_swap").classes("w-full")
+        ui.button("🚀 Inject + run agents",
+                  on_click=lambda: inject_one(scenario_sel.value)).classes("w-full mt-2 bg-rose-500")
+
+        ui.separator().classes("my-4")
+        ui.label("MongoDB collections").classes("text-sm opacity-70")
+        counts_lbl = ui.label("loading…").classes("text-xs font-mono whitespace-pre")
+
+        async def _refresh_counts():
+            try:
+                c = await _run_in_pool(fetch_collection_counts)
+                counts_lbl.set_text("\n".join(f"{k:<14} {v:,}" for k, v in c.items()))
+            except Exception as exc:
+                counts_lbl.set_text(f"<error: {exc}>")
+
+        ui.timer(8.0, _refresh_counts, immediate=True)
+
+    # ── main grid ──────────────────────────────────────────────────────────
+    with ui.row().classes("w-full no-wrap gap-4 p-4 items-stretch"):
+        # left
+        with ui.column().classes("flex-1 min-w-0 gap-3"):
+            ui.label("📡 Live transaction feed").classes("text-lg font-semibold")
+            tx_table = ui.table(columns=TX_COLUMNS, rows=[], row_key="tx_id") \
+                .classes("w-full").props("dense flat")
+
+            ui.label("🧠 Agent activity timeline (latest run)").classes("text-lg font-semibold mt-2")
+            timeline = ui.column().classes("w-full gap-1")
+
+        # right
+        with ui.column().classes("w-1/3 gap-3"):
+            ui.label("🗂️ Open cases").classes("text-lg font-semibold")
+            cases_box = ui.column().classes("w-full gap-2")
+
+    # ── reactive renderers ────────────────────────────────────────────────
+    def render_runs():
+        tx_table.rows = _runs_table_rows()
+        tx_table.update()
+        timeline.clear()
+        if not STATE["runs"]:
+            with timeline:
+                ui.label("Inject a scenario or enable Live stream to populate.").classes("opacity-60")
+            return
+        sel = STATE["runs"][0]
+        with timeline:
+            for step in sel["result"].get("trace", []):
+                color = AGENT_COLOR.get(step.get("agent"), "#adb5bd")
+                with ui.card().tight().classes("w-full p-3"):
+                    ui.html(
+                        f'<span style="background:{color};color:white;padding:2px 8px;'
+                        f'border-radius:6px;font-size:.78rem">{step.get("agent","?")}</span> '
+                        f'<span style="color:#999;font-size:.75rem">{step.get("ts","")}</span>'
+                    )
+                    ui.label(str(step.get("summary", "")) or json.dumps(jsonable(step), indent=2)) \
+                        .classes("text-sm whitespace-pre-wrap")
+            with ui.expansion("🔬 Raw final state").classes("w-full"):
+                state_json = jsonable({k: v for k, v in sel["result"].items() if k != "messages"})
+                ui.code(json.dumps(state_json, indent=2)).classes("w-full text-xs")
+
+    async def render_cases():
+        try:
+            cases = await _run_in_pool(fetch_recent_cases, 10)
+        except Exception as exc:
+            cases_box.clear()
+            with cases_box:
+                ui.label(f"fetch error: {exc}").classes("text-red-400")
+            return
+        cases_box.clear()
+        if not cases:
+            with cases_box:
+                ui.label("No cases yet.").classes("opacity-60")
+            return
+        with cases_box:
+            for c in cases:
+                title = f"{c.get('case_id')} · {c.get('status')} · score={c.get('score')}"
+                with ui.expansion(title).classes("w-full"):
+                    ui.code(json.dumps(jsonable(c), indent=2)).classes("w-full text-xs")
+                    try:
+                        evts = await _run_in_pool(fetch_recent_case_events, c.get("case_id"), 10)
+                    except Exception as exc:
+                        ui.label(f"events fetch error: {exc}").classes("text-red-400")
+                        continue
+                    for e in evts:
+                        with ui.card().tight().classes("w-full p-2 mt-1"):
+                            ui.label(f"{_safe_dt(e.get('ts'))} · {e.get('type','?')}") \
+                                .classes("text-xs opacity-70")
+                            ui.code(json.dumps(jsonable(e.get("payload", {})), indent=2)) \
+                                .classes("w-full text-xs")
+
+    ui.timer(2.0, render_runs, immediate=True)
+    ui.timer(6.0, render_cases, immediate=True)
+    ui.timer(6.0, stream_tick)
+
+
+def main() -> None:
+    ui.run(host="0.0.0.0", port=8501, title="VaultIQ", reload=False, show=False,
+           dark=True, storage_secret="vaultiq-demo-secret-not-for-prod")
+
+
+if __name__ in {"__main__", "__mp_main__"}:
+    main()

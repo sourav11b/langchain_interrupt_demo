@@ -14,7 +14,7 @@ store, geospatial store and graph store (PolyStorage).
 
 ```
 ┌──────────────┐   ┌────────────────┐   ┌─────────────────┐   ┌──────────────────┐
-│  Streamlit   │──▶│ Fraud Sentinel │──▶│ Customer Trust  │──▶│ Case Resolution  │
+│   NiceGUI    │──▶│ Fraud Sentinel │──▶│ Customer Trust  │──▶│ Case Resolution  │
 │  live UI     │   │   (scoring)    │   │     (KYC)       │   │  (CRM / MCP)     │
 └──────────────┘   └────────────────┘   └─────────────────┘   └──────────────────┘
         │                  │                    │                       │
@@ -45,7 +45,7 @@ store, geospatial store and graph store (PolyStorage).
 
 ```
 .
-├── app.py                     # Streamlit entry point
+├── app.py                     # NiceGUI entry point  (python app.py)
 ├── config/vaultiq.properties  # service map (LLM, embeddings, collections, MCP, agents…)
 ├── data/
 │   ├── fraud_kb_corpus.py     # curated FSI policy / playbook corpus
@@ -64,7 +64,7 @@ store, geospatial store and graph store (PolyStorage).
 │   ├── tools/                 # fraud / kyc / case / geo / graph / TS / MCP tools
 │   ├── scenarios/             # 7 injectable fraud scenarios
 │   ├── agents/                # 3 ReAct agents + LangGraph wiring + Deep Agents alt
-│   └── ui/                    # Streamlit dashboard + stream runner
+│   └── ui/                    # NiceGUI dashboard + framework-agnostic stream runner
 └── tests/test_imports.py      # static smoke test
 ```
 
@@ -111,9 +111,9 @@ python -m scripts.seed
 # 3a. Smoke-test one scenario from the CLI
 python -m scripts.run_one --scenario ato_sim_swap
 
-# 3b. Or launch the live dashboard (binds to 0.0.0.0 so you can hit it
-#     from outside the EC2 instance — open port 8501 in your security group)
-streamlit run app.py --server.address 0.0.0.0 --server.port 8501
+# 3b. Or launch the live NiceGUI dashboard (binds to 0.0.0.0 so you can hit
+#     it from outside the EC2 instance — open port 8501 in your security group)
+python app.py
 ```
 
 The dashboard exposes a sidebar with **Live stream** (auto-generates one tx

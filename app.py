@@ -1,6 +1,6 @@
-"""VaultIQ Streamlit entry point — run from the repo root.
+"""VaultIQ NiceGUI entry point — run from the repo root.
 
-    streamlit run app.py
+    python app.py
 """
 from __future__ import annotations
 
@@ -11,5 +11,7 @@ ROOT = Path(__file__).resolve().parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-# Re-export the dashboard module so Streamlit executes its top-level code.
-import src.vaultiq.ui.streamlit_app  # noqa: F401,E402
+from src.vaultiq.ui.nicegui_app import main  # noqa: E402
+
+if __name__ in {"__main__", "__mp_main__"}:
+    main()
