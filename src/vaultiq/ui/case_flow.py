@@ -11,6 +11,7 @@ All data is read-only and reconstructed from MongoDB:
 """
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 from typing import Any
 
@@ -292,3 +293,46 @@ def render_case_flow(flow: dict) -> None:
                     ui.label(f"{e.get('type','?')}{tail}").classes(
                         "text-[11px] opacity-85"
                     )
+
+
+
+# ── dedicated full-page case-flow view (`/case/{case_id}`) ────────────────
+# Opened in a new browser tab from the dashboard's '🗂️ Open cases' panel
+# so the auto-refreshing case list never destroys the detail you're reading.
+
+@ui.page("/case/{case_id}")
+def case_page(case_id: str) -> None:
+    from src.vaultiq.ui.stream_runner import fetch_case_flow  # local: avoid cycle
+
+    ui.dark_mode().enable()
+    with ui.header(elevated=True).classes("items-center bg-slate-900 text-white"):
+        ui.label("📁").classes("text-xl")
+        ui.label(case_id).classes("text-base font-mono font-bold ml-2")
+        ui.label("agent flow & decision trace").classes(
+            "text-xs opacity-70 ml-3"
+        )
+        ui.space()
+        ui.link("← back to dashboard", "/").classes("text-xs opacity-80")
+
+    body = ui.column().classes("w-full max-w-3xl mx-auto p-4 gap-3")
+    with body:
+        ui.label("loading…").classes("opacity-60")
+
+    async def _load() -> None:
+        try:
+            flow = await asyncio.get_running_loop().run_in_executor(
+                None, fetch_case_flow, case_id
+            )
+        except Exception as exc:
+            body.clear()
+            with body:
+                ui.label(f"flow fetch error: {exc}").classes("text-red-400")
+            return
+        body.clear()
+        with body:
+            if not flow.get("case"):
+                ui.label(f"Unknown case: {case_id}").classes("text-red-400")
+                return
+            render_case_flow(flow)
+
+    asyncio.create_task(_load())

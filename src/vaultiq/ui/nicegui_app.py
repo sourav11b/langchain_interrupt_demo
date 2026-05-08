@@ -10,6 +10,7 @@ import asyncio
 import json
 import logging
 from datetime import datetime, timezone
+from typing import Any
 
 from nicegui import app, ui
 
@@ -20,10 +21,9 @@ from src.vaultiq.tools._common import jsonable
 from src.vaultiq.ui.flow_svg import flow_svg
 from src.vaultiq.ui import agent_detail as _agent_detail  # noqa: F401  registers /agent/{id}
 from src.vaultiq.ui import storage_detail as _storage_detail  # noqa: F401  registers /storage
-from src.vaultiq.ui.case_flow import render_case_flow
+from src.vaultiq.ui import case_flow as _case_flow  # noqa: F401  registers /case/{id}
 from src.vaultiq.ui.stream_runner import (
     execute_through_agents,
-    fetch_case_flow,
     fetch_collection_counts,
     fetch_recent_case_events,
     fetch_recent_cases,
@@ -319,14 +319,38 @@ def index() -> None:
                 state_json = jsonable({k: v for k, v in sel["result"].items() if k != "messages"})
                 ui.code(json.dumps(state_json, indent=2)).classes("w-full text-xs")
 
+    # Status -> (emoji, tailwind text colour) for the case-list rows. Kept
+    # in sync with src/vaultiq/ui/case_flow.py:_STATUS_STYLE.
+    _CASE_ROW_STYLE = {
+        "NEW":                 ("🆕", "text-slate-300"),
+        "PENDING_CUSTOMER":    ("⏳", "text-yellow-300"),
+        "UNDER_INVESTIGATION": ("🔎", "text-orange-400"),
+        "ESCALATED_AML":       ("🚨", "text-red-400"),
+        "RESOLVED_FRAUD":      ("⛔", "text-red-400"),
+        "RESOLVED_LEGITIMATE": ("✅", "text-emerald-400"),
+    }
+
+    # Memoise the last rendered case-list signature so the 6s timer only
+    # rebuilds the rows when something actually changed (no more flicker).
+    _cases_state: dict[str, Any] = {"sig": None}
+
     async def render_cases():
         try:
             cases = await _run_in_pool(fetch_recent_cases, 10)
         except Exception as exc:
             cases_box.clear()
+            _cases_state["sig"] = ("__error__", str(exc))
             with cases_box:
                 ui.label(f"fetch error: {exc}").classes("text-red-400")
             return
+        sig = tuple(
+            (c.get("case_id"), c.get("status"), c.get("score"),
+             str(c.get("updated_at")))
+            for c in cases
+        )
+        if sig == _cases_state["sig"]:
+            return  # nothing changed — leave the panel alone
+        _cases_state["sig"] = sig
         cases_box.clear()
         if not cases:
             with cases_box:
@@ -334,17 +358,30 @@ def index() -> None:
             return
         with cases_box:
             for c in cases:
-                title = f"{c.get('case_id')} · {c.get('status')} · score={c.get('score')}"
-                with ui.expansion(title).classes("w-full"):
-                    body = ui.column().classes("w-full gap-1")
-                    try:
-                        flow = await _run_in_pool(fetch_case_flow, c.get("case_id"))
-                    except Exception as exc:
-                        with body:
-                            ui.label(f"flow fetch error: {exc}").classes("text-red-400")
-                        continue
-                    with body:
-                        render_case_flow(flow)
+                cid = c.get("case_id", "?")
+                status = (c.get("status") or "NEW").upper()
+                ico, color_cls = _CASE_ROW_STYLE.get(status, ("📁", "text-slate-300"))
+                score = c.get("score")
+                # Plain anchor with target=_blank so the detail opens in a
+                # new tab and isn't disturbed by the dashboard's auto-refresh.
+                href = f"/case/{cid}"
+                ui.html(
+                    f'<a href="{href}" target="_blank" rel="noopener" '
+                    f'class="block w-full no-underline">'
+                    f'  <div class="flex items-center gap-2 px-3 py-2 rounded-lg '
+                    f'bg-slate-900 hover:bg-slate-800 border border-slate-800 '
+                    f'transition-colors">'
+                    f'    <span class="text-base">{ico}</span>'
+                    f'    <span class="font-mono text-xs font-bold {color_cls}">'
+                    f'{cid}</span>'
+                    f'    <span class="text-[10px] opacity-70 {color_cls}">'
+                    f'{status}</span>'
+                    f'    <span class="ml-auto font-mono text-xs opacity-90">'
+                    f'score {score if score is not None else "—"}</span>'
+                    f'    <span class="text-xs opacity-60 ml-2">↗</span>'
+                    f'  </div>'
+                    f'</a>'
+                ).classes("w-full")
 
     ui.timer(2.0, render_runs, immediate=True)
     ui.timer(6.0, render_cases, immediate=True)
