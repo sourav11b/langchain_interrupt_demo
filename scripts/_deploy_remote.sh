@@ -11,8 +11,8 @@ pkill -f 'nicegui' 2>/dev/null || true
 sleep 2
 
 echo '== git pull =='
-# diagnostic helpers were scp'd earlier and are now committed; remove dupes
-rm -f scripts/_inspect_state.py scripts/_repro_dropdown.py
+# diagnostic helpers may have been scp'd earlier and are now committed
+rm -f scripts/_*.py
 git pull --ff-only
 
 echo '== pip install =='
