@@ -36,9 +36,17 @@ def generate_baseline_transaction() -> dict:
 
 
 def persist_transaction(tx: dict) -> None:
-    """Append the transaction to the time-series + geo collections."""
+    """Append the transaction to the time-series + geo collections.
+
+    Note: PyMongo's `insert_one` mutates the input dict in place, adding
+    `_id: ObjectId(...)`. That ObjectId would then poison the LangGraph
+    state (msgpack can't serialize it) when the same `tx` is forwarded
+    to `run_once`. We pass a shallow copy and also strip `_id` from the
+    original after the call as belt-and-braces.
+    """
     db = get_db()
-    db[C.transactions].insert_one(tx)
+    db[C.transactions].insert_one(dict(tx))
+    tx.pop("_id", None)
     merch = db[C.merchants].find_one({"merchant_id": tx.get("merchant_id")}, {"_geo": 1})
     if merch and merch.get("_geo"):
         db[C.transaction_geo].insert_one({
@@ -53,6 +61,7 @@ def persist_transaction(tx: dict) -> None:
 def execute_through_agents(tx: dict) -> dict[str, Any]:
     """Persist the tx then run it through the LangGraph 3-agent flow."""
     persist_transaction(tx)
+    tx.pop("_id", None)  # final guard before LangGraph state is built
     started = datetime.now(tz=timezone.utc)
     result = run_once(tx)
     elapsed = (datetime.now(tz=timezone.utc) - started).total_seconds()
