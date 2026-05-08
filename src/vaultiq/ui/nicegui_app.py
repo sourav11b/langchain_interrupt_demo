@@ -18,6 +18,8 @@ from src.vaultiq.logging_setup import configure_logging
 from src.vaultiq.scenarios.injector import SCENARIOS, build_scenario_transaction
 from src.vaultiq.tools._common import jsonable
 from src.vaultiq.ui.flow_svg import flow_svg
+from src.vaultiq.ui import agent_detail as _agent_detail  # noqa: F401  registers /agent/{id}
+from src.vaultiq.ui import storage_detail as _storage_detail  # noqa: F401  registers /storage
 from src.vaultiq.ui.stream_runner import (
     execute_through_agents,
     fetch_collection_counts,

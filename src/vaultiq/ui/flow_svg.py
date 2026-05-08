@@ -11,14 +11,15 @@ diagram visibly conveys "the system is live" even when no run is in flight.
 """
 from __future__ import annotations
 
-# (label, accent colour, glyph, top-left x)
-_NODES: list[tuple[str, str, str, int]] = [
-    ("Transaction",     "#94a3b8", "📦", 30),
-    ("Fraud Sentinel",  "#ff6b6b", "🛡", 240),
-    ("Customer Trust",  "#ffa94d", "🪪", 450),
-    ("Case Resolution", "#4dabf7", "📁", 660),
-    ("Memory Writer",   "#82c91e", "🧠", 870),
+# (label, accent colour, glyph, top-left x, click-through href or "")
+_NODES: list[tuple[str, str, str, int, str]] = [
+    ("Transaction",     "#94a3b8", "📦", 30,  ""),
+    ("Fraud Sentinel",  "#ff6b6b", "🛡", 240, "/agent/fraud_sentinel"),
+    ("Customer Trust",  "#ffa94d", "🪪", 450, "/agent/customer_trust"),
+    ("Case Resolution", "#4dabf7", "📁", 660, "/agent/case_resolution"),
+    ("Memory Writer",   "#82c91e", "🧠", 870, "/agent/memory_writer"),
 ]
+_MONGO_HREF = "/storage"
 
 _W, _H = 180, 70                       # node box
 _NODE_Y = 40                           # top of stage row
@@ -28,21 +29,24 @@ _MONGO_Y = 220
 _VIEW_W, _VIEW_H = 1080, 320
 
 
-def _node(g: tuple[str, str, str, int]) -> str:
-    label, color, glyph, x = g
-    cx = x + _W // 2
-    return (
-        f'<g transform="translate({x} {_NODE_Y})">'
-        f'  <rect width="{_W}" height="{_H}" rx="12" fill="#0f172a" '
+def _node(g: tuple[str, str, str, int, str]) -> str:
+    label, color, glyph, x, href = g
+    body = (
+        f'<rect width="{_W}" height="{_H}" rx="12" fill="#0f172a" '
         f'stroke="{color}" stroke-width="2" filter="url(#glow)"/>'
-        f'  <text x="{_W // 2}" y="30" text-anchor="middle" fill="{color}" '
+        f'<text x="{_W // 2}" y="30" text-anchor="middle" fill="{color}" '
         f'font-size="18" font-family="ui-sans-serif,system-ui">{glyph}</text>'
-        f'  <text x="{_W // 2}" y="54" text-anchor="middle" fill="#e2e8f0" '
+        f'<text x="{_W // 2}" y="54" text-anchor="middle" fill="#e2e8f0" '
         f'font-size="12" font-weight="600" font-family="ui-sans-serif,system-ui">'
         f'{label}</text>'
-        f'</g>'
     )
-    _ = cx  # unused but kept for potential future per-node anchors
+    if href:
+        # Subtle "↗" hint in the corner so it's obviously clickable.
+        body += (f'<text x="{_W - 12}" y="16" text-anchor="end" fill="{color}" '
+                 f'font-size="11" opacity="0.85">↗</text>')
+        return (f'<a href="{href}" target="_blank" style="cursor:pointer">'
+                f'<g transform="translate({x} {_NODE_Y})">{body}</g></a>')
+    return f'<g transform="translate({x} {_NODE_Y})">{body}</g>'
 
 
 def flow_svg() -> str:
@@ -99,17 +103,21 @@ def flow_svg() -> str:
     for n in _NODES:
         parts.append(_node(n))
 
-    parts.append(
-        f'<g transform="translate({_MONGO_X} {_MONGO_Y})">'
-        f'  <rect width="{_MONGO_W}" height="{_MONGO_H}" rx="14" '
+    mongo_inner = (
+        f'<rect width="{_MONGO_W}" height="{_MONGO_H}" rx="14" '
         f'fill="#022c22" stroke="#10b981" stroke-width="2" filter="url(#glow)"/>'
-        f'  <text x="{_MONGO_W // 2}" y="26" text-anchor="middle" fill="#10b981" '
+        f'<text x="{_MONGO_W // 2}" y="26" text-anchor="middle" fill="#10b981" '
         f'font-size="15" font-weight="700" font-family="ui-sans-serif,system-ui">'
         f'🍃 MongoDB Atlas — PolyStorage</text>'
-        f'  <text x="{_MONGO_W // 2}" y="46" text-anchor="middle" fill="#94a3b8" '
+        f'<text x="{_MONGO_W // 2}" y="46" text-anchor="middle" fill="#94a3b8" '
         f'font-size="11" font-family="ui-sans-serif,system-ui">'
         f'vector · time-series · geo · graph · CRM · checkpoints</text>'
-        f'</g>'
+        f'<text x="{_MONGO_W - 12}" y="16" text-anchor="end" fill="#10b981" '
+        f'font-size="11" opacity="0.85">↗</text>'
+    )
+    parts.append(
+        f'<a href="{_MONGO_HREF}" target="_blank" style="cursor:pointer">'
+        f'<g transform="translate({_MONGO_X} {_MONGO_Y})">{mongo_inner}</g></a>'
     )
 
     # ── animated packets along stage→stage edges ────────────────────────────
