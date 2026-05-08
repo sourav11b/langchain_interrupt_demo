@@ -1,0 +1,35 @@
+[Unit]
+Description=VaultIQ NiceGUI dashboard (NextGen AI Financial Intelligence)
+Documentation=https://github.com/sourav11b/langchain_interrupt_demo
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/home/ubuntu/langchain_interrupt_demo
+
+# Make the dashboard listen on TCP 8505 for everyone in the SG.
+Environment=VAULTIQ_PORT=8505
+Environment=VAULTIQ_HOST=0.0.0.0
+Environment=PYTHONUNBUFFERED=1
+
+ExecStart=/home/ubuntu/langchain_interrupt_demo/demo/bin/python /home/ubuntu/langchain_interrupt_demo/app.py
+
+# Auto-restart on crash, and on the (rare) clean exit.
+Restart=always
+RestartSec=5
+StartLimitIntervalSec=120
+StartLimitBurst=10
+
+# Stream stdout/stderr into journald: `journalctl -u vaultiq -f`
+StandardOutput=journal
+StandardError=journal
+
+# Light hardening — keep it relaxed since the app touches /tmp + the venv.
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

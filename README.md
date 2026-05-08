@@ -111,9 +111,11 @@ python -m scripts.seed
 # 3a. Smoke-test one scenario from the CLI
 python -m scripts.run_one --scenario ato_sim_swap
 
-# 3b. Or launch the live NiceGUI dashboard (binds to 0.0.0.0 so you can hit
-#     it from outside the EC2 instance — open port 8501 in your security group)
+# 3b. Or launch the live NiceGUI dashboard. Default port is 8505 (override
+#     with VAULTIQ_PORT). On EC2, open the port in your security group.
 python app.py
+# or as a permanent systemd service:
+bash scripts/install_service.sh   # then `journalctl -u vaultiq -f`
 ```
 
 The dashboard exposes a sidebar with **Live stream** (auto-generates one tx

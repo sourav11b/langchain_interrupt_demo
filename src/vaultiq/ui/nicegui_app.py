@@ -353,7 +353,10 @@ def index() -> None:
 
 
 def main() -> None:
-    ui.run(host="0.0.0.0", port=8501, title="VaultIQ", reload=False, show=False,
+    import os
+    port = int(os.getenv("VAULTIQ_PORT", "8505"))
+    host = os.getenv("VAULTIQ_HOST", "0.0.0.0")
+    ui.run(host=host, port=port, title="VaultIQ", reload=False, show=False,
            dark=True, storage_secret="vaultiq-demo-secret-not-for-prod")
 
 
