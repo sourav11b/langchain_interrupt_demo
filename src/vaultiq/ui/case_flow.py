@@ -93,34 +93,49 @@ _ANIMATION_CSS = """
 
 
 # ── orchestrator JS ───────────────────────────────────────────────────────
-# Walks the .vq-step elements in DOM order, revealing them one at a time
-# and updating the sticky narration / progress bar at the top. Names and
-# narration HTML are passed in via window.vqStepNames / vqNarrations.
+# Loaded into the initial page <head> (so the browser actually executes it).
+# The body is filled in via NiceGUI's WebSocket patches AFTER the head is
+# sent, so we can't auto-run on DOMContentLoaded — instead we poll for
+# .vq-step elements every 150 ms (with a hard 12 s timeout) and start the
+# journey as soon as they appear. Step names and narration HTML are read
+# from hidden #vq-names / #vq-narrs spans rendered into the body.
 _ANIMATION_JS = """
 (function () {
-  function play() {
-    const steps   = Array.from(document.querySelectorAll('.vq-step'));
-    const arrows  = Array.from(document.querySelectorAll('.vq-arrow'));
-    const events  = Array.from(document.querySelectorAll('.vq-event'));
-    const names   = (window.vqStepNames || []);
-    const narrs   = (window.vqNarrations || []);
-    const indi    = document.getElementById('vq-step-indicator');
-    const narrEl  = document.getElementById('vq-narration');
-    const pbar    = document.getElementById('vq-progress-bar');
-    const replay  = document.getElementById('vq-replay-btn');
-    if (!steps.length) return;
+  var runId = 0;
 
-    steps.forEach(s => s.classList.remove('vq-revealed', 'vq-active'));
-    arrows.forEach(a => a.classList.remove('vq-active'));
-    events.forEach(e => e.classList.remove('vq-revealed'));
+  function readJson(elId) {
+    var el = document.getElementById(elId);
+    if (!el) return [];
+    try { return JSON.parse(el.textContent || '[]'); }
+    catch (_) { return []; }
+  }
+
+  function play() {
+    var my = ++runId;
+    var steps  = Array.prototype.slice.call(document.querySelectorAll('.vq-step'));
+    if (steps.length === 0) return;
+    var arrows = Array.prototype.slice.call(document.querySelectorAll('.vq-arrow'));
+    var events = Array.prototype.slice.call(document.querySelectorAll('.vq-event'));
+    var names  = readJson('vq-names');
+    var narrs  = readJson('vq-narrs');
+    var indi   = document.getElementById('vq-step-indicator');
+    var narrEl = document.getElementById('vq-narration');
+    var pbar   = document.getElementById('vq-progress-bar');
+    var replay = document.getElementById('vq-replay-btn');
+
+    steps.forEach(function (s) { s.classList.remove('vq-revealed', 'vq-active'); });
+    arrows.forEach(function (a) { a.classList.remove('vq-active'); });
+    events.forEach(function (e) { e.classList.remove('vq-revealed'); });
     if (pbar)   pbar.style.width = '0%';
     if (replay) replay.style.display = 'none';
 
-    let i = 0;
+    var i = 0;
     function next() {
+      if (my !== runId) return;       // a newer play() superseded us
       if (i >= steps.length) {
-        events.forEach((e, j) =>
-          setTimeout(() => e.classList.add('vq-revealed'), j * 220));
+        events.forEach(function (e, j) {
+          setTimeout(function () { e.classList.add('vq-revealed'); }, j * 220);
+        });
         if (indi)   indi.innerHTML =
           '<span style="color:#10b981">✅</span> journey complete';
         if (pbar)   pbar.style.width = '100%';
@@ -131,21 +146,37 @@ _ANIMATION_JS = """
         steps[i - 1].classList.remove('vq-active');
         if (arrows[i - 1]) arrows[i - 1].classList.add('vq-active');
       }
-      const cur = steps[i];
+      var cur = steps[i];
       cur.classList.add('vq-revealed', 'vq-active');
-      const nm = names[i] || ('step ' + (i + 1));
+      var nm = names[i] || ('step ' + (i + 1));
       if (indi) indi.innerHTML =
         '<span style="color:#38bdf8">▶</span> step ' + (i + 1) +
         ' of ' + steps.length + ' · <b>' + nm + '</b>';
       if (narrEl && narrs[i] !== undefined) narrEl.innerHTML = narrs[i];
-      if (pbar)  pbar.style.width = (((i + 1) / steps.length) * 100) + '%';
+      if (pbar) pbar.style.width = (((i + 1) / steps.length) * 100) + '%';
       i += 1;
       setTimeout(next, 1900);
     }
     setTimeout(next, 350);
   }
+
   window.vqReplayCaseFlow = play;
-  setTimeout(play, 250);
+
+  // Poll for the case body to mount (it streams in via NiceGUI WebSocket
+  // patches after the initial HTML response). Bail after ~12s.
+  var attempts = 0;
+  function tryStart() {
+    if (document.querySelectorAll('.vq-step').length > 0) {
+      play();
+    } else if (attempts++ < 80) {
+      setTimeout(tryStart, 150);
+    }
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', tryStart);
+  } else {
+    tryStart();
+  }
 })();
 """
 
@@ -326,8 +357,8 @@ def render_case_flow(flow: dict) -> None:
     step_names: list[str] = []
     narrations: list[str] = []
 
-    # ── Inject the animation CSS once at the top of the rendered tree ────
-    ui.html(f"<style>{_ANIMATION_CSS}</style>")
+    # CSS + orchestrator JS are injected once into <head> by case_page (so
+    # they actually execute). Here we just build the body content.
 
     # ── Sticky playback control bar ──────────────────────────────────────
     with ui.card().tight().classes(
@@ -511,13 +542,17 @@ def render_case_flow(flow: dict) -> None:
                     )
 
     # ── Hand off step names + narrations to the JS orchestrator ───────────
+    # Hidden text spans (not <script> tags) because NiceGUI's ui.html injects
+    # via Vue's v-html → innerHTML, and innerHTML-set scripts never execute.
+    # The orchestrator (loaded into <head> by case_page) reads these via
+    # `.textContent` and `JSON.parse`.
+    import html as _html
     ui.html(
-        f"<script>"
-        f"window.vqStepNames = {_json.dumps(step_names)};"
-        f"window.vqNarrations = {_json.dumps(narrations)};"
-        f"</script>"
+        '<div id="vq-data" style="display:none">'
+        f'<span id="vq-names">{_html.escape(_json.dumps(step_names))}</span>'
+        f'<span id="vq-narrs">{_html.escape(_json.dumps(narrations))}</span>'
+        '</div>'
     )
-    ui.html(f"<script>{_ANIMATION_JS}</script>")
 
 
 
@@ -530,6 +565,12 @@ def case_page(case_id: str) -> None:
     from src.vaultiq.ui.stream_runner import fetch_case_flow  # local: avoid cycle
 
     ui.dark_mode().enable()
+    # Inject animation CSS + orchestrator JS into the initial page <head>.
+    # ui.html() inside the body would not execute the script (innerHTML
+    # injection skips <script> tags), so we add it here where it lands in
+    # the initial HTML response and the browser parses it normally.
+    ui.add_head_html(f"<style>{_ANIMATION_CSS}</style>")
+    ui.add_head_html(f"<script>{_ANIMATION_JS}</script>")
     with ui.header(elevated=True).classes("items-center bg-slate-900 text-white"):
         ui.label("📁").classes("text-xl")
         ui.label(case_id).classes("text-base font-mono font-bold ml-2")
