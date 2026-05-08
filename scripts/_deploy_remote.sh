@@ -16,7 +16,7 @@ rm -f scripts/_inspect_state.py scripts/_repro_dropdown.py
 git pull --ff-only
 
 echo '== pip install =='
-demo/bin/pip install --quiet 'nicegui>=2.0.0'
+demo/bin/pip install --quiet --upgrade -r requirements.txt
 
 echo '== version check =='
 demo/bin/python - <<'PY'

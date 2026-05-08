@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 
 from nicegui import app, ui
 
+from src.vaultiq.db.atlas_admin import AtlasAdminError, ensure_cluster_running, get_cluster_status
 from src.vaultiq.logging_setup import configure_logging
 from src.vaultiq.scenarios.injector import SCENARIOS, build_scenario_transaction
 from src.vaultiq.tools._common import jsonable
@@ -34,6 +35,8 @@ STATE: dict = {
     "auto_run": False,
     "selected_case": None,
     "running_jobs": 0,
+    "cluster": {"state": "CHECKING", "paused": None, "ready": False, "error": None},
+    "cluster_check_started": False,
 }
 
 AGENT_COLOR = {
@@ -49,7 +52,34 @@ async def _run_in_pool(fn, *args):
     return await asyncio.get_running_loop().run_in_executor(None, fn, *args)
 
 
+async def ensure_cluster_task() -> None:
+    """Background task: check cluster, resume if paused, poll until ready."""
+    if STATE["cluster_check_started"]:
+        return
+    STATE["cluster_check_started"] = True
+
+    def _cb(status: dict) -> None:
+        STATE["cluster"] = {**status, "error": None}
+
+    try:
+        await _run_in_pool(ensure_cluster_running, _cb)
+        log.info("Atlas cluster ready.")
+    except AtlasAdminError as exc:
+        log.exception("Atlas cluster check failed")
+        STATE["cluster"] = {"state": "ERROR", "paused": None, "ready": False, "error": str(exc)}
+    except Exception as exc:
+        log.exception("Atlas cluster check raised")
+        STATE["cluster"] = {"state": "ERROR", "paused": None, "ready": False, "error": repr(exc)}
+
+
+def _cluster_is_ready() -> bool:
+    return bool(STATE.get("cluster", {}).get("ready"))
+
+
 async def inject_one(scenario_id: str) -> None:
+    if not _cluster_is_ready():
+        ui.notify("Atlas cluster not ready yet — please wait.", type="warning")
+        return
     STATE["running_jobs"] += 1
     try:
         tx = await _run_in_pool(build_scenario_transaction, scenario_id)
@@ -71,7 +101,7 @@ async def inject_one(scenario_id: str) -> None:
 
 
 async def stream_tick() -> None:
-    if not STATE["auto_run"] or STATE["running_jobs"] > 0:
+    if not STATE["auto_run"] or STATE["running_jobs"] > 0 or not _cluster_is_ready():
         return
     STATE["running_jobs"] += 1
     try:
@@ -134,6 +164,10 @@ def index() -> None:
     ui.dark_mode().enable()
     ui.add_head_html("<style>.q-table tbody td{font-size:.78rem}.q-table thead th{font-size:.78rem;font-weight:600}</style>")
 
+    # Kick off the cluster check on first ever page load.
+    if not STATE["cluster_check_started"]:
+        asyncio.create_task(ensure_cluster_task())
+
     # ── header ─────────────────────────────────────────────────────────────
     with ui.header(elevated=True).classes("items-center bg-slate-900 text-white"):
         ui.label("🛡️ VaultIQ").classes("text-2xl font-bold")
@@ -149,6 +183,38 @@ def index() -> None:
 
         ui.timer(1.0, _tick_header)
 
+    # ── cluster status banner (top of page) ────────────────────────────────
+    cluster_banner = ui.html("").classes("w-full px-4 pt-3")
+
+    def _refresh_banner():
+        cs = STATE.get("cluster", {})
+        state = cs.get("state", "CHECKING")
+        ready = cs.get("ready", False)
+        err = cs.get("error")
+        if ready:
+            html = (
+                f'<div style="background:#2b8a3e;color:white;padding:8px 14px;'
+                f'border-radius:6px;font-size:.85rem">'
+                f'✅ Atlas cluster <b>IDLE</b> — agents are live.</div>'
+            )
+        elif err:
+            html = (
+                f'<div style="background:#c92a2a;color:white;padding:8px 14px;'
+                f'border-radius:6px;font-size:.85rem">'
+                f'❌ Atlas cluster check failed: {err}</div>'
+            )
+        else:
+            label = "starting up" if cs.get("paused") or state in ("REPAIRING", "UPDATING") else state.lower()
+            html = (
+                f'<div style="background:#f59f00;color:white;padding:8px 14px;'
+                f'border-radius:6px;font-size:.85rem">'
+                f'🟡 <b>Atlas cluster is {label}</b> — please wait, the inject button will '
+                f'enable when the cluster is ready (this can take 1–5 minutes from a paused state).</div>'
+            )
+        cluster_banner.set_content(html)
+
+    ui.timer(1.5, _refresh_banner, immediate=True)
+
     # ── sidebar ────────────────────────────────────────────────────────────
     with ui.left_drawer(value=True, fixed=True).classes("bg-slate-800 text-white p-4 w-72"):
         ui.label("⚙️ Controls").classes("text-lg font-semibold mb-2")
@@ -159,8 +225,21 @@ def index() -> None:
         ui.label("Inject scenario").classes("mt-4 font-semibold")
         scenario_options = {s.id: f"{s.label}  · hint {s.risk_hint}" for s in SCENARIOS}
         scenario_sel = ui.select(scenario_options, value="ato_sim_swap").classes("w-full")
-        ui.button("🚀 Inject + run agents",
-                  on_click=lambda: inject_one(scenario_sel.value)).classes("w-full mt-2 bg-rose-500")
+        inject_btn = ui.button("🚀 Inject + run agents",
+                               on_click=lambda: inject_one(scenario_sel.value)) \
+            .classes("w-full mt-2 bg-rose-500")
+        inject_btn.set_enabled(False)
+        live_sw.set_enabled(False)
+
+        def _gate_controls():
+            ready = _cluster_is_ready()
+            inject_btn.set_enabled(ready)
+            live_sw.set_enabled(ready)
+            if not ready and live_sw.value:
+                live_sw.value = False
+                STATE["auto_run"] = False
+
+        ui.timer(1.5, _gate_controls, immediate=True)
 
         ui.separator().classes("my-4")
         ui.label("MongoDB collections").classes("text-sm opacity-70")
