@@ -1,12 +1,12 @@
 """Chat LLM + embeddings factories.
 
-Embeddings: Voyage finance-2 (primary) with Azure text-embedding-3-large
-fallback. Both produce dense vectors used by every Atlas Vector Search index.
+Embeddings: `langchain_mongodb.AutoEmbeddings` — vectors are generated and
+stored server-side by MongoDB Atlas (`mongot` calls Voyage AI directly), so
+no client-side embedding library is required.
 """
 from __future__ import annotations
 
 import logging
-import os
 from functools import lru_cache
 
 from langchain_core.embeddings import Embeddings
@@ -34,32 +34,13 @@ def get_chat_llm() -> BaseChatModel:
 
 @lru_cache(maxsize=1)
 def get_embeddings() -> Embeddings:
-    cfg = settings.embeddings
-    primary = (cfg.get("primary_provider") or "voyage").lower()
-    if primary == "voyage" and cfg.get("voyage_api_key"):
-        try:
-            from langchain_voyageai import VoyageAIEmbeddings
-            log.info("Using VoyageAIEmbeddings model=%s", cfg["voyage_model"])
-            return VoyageAIEmbeddings(
-                voyage_api_key=cfg["voyage_api_key"],
-                model=cfg["voyage_model"],
-            )
-        except Exception as exc:  # pragma: no cover - fallback path
-            log.warning("Voyage embeddings unavailable (%s); falling back to Azure", exc)
+    """Return an `AutoEmbeddings` instance bound to the configured Voyage model.
 
-    from langchain_openai import AzureOpenAIEmbeddings
-    log.info("Using AzureOpenAIEmbeddings deployment=%s", cfg["azure_deployment"])
-    return AzureOpenAIEmbeddings(
-        azure_endpoint=settings.llm["azure_endpoint"],
-        api_key=settings.llm["azure_api_key"],
-        api_version=settings.llm["azure_api_version"],
-        azure_deployment=cfg["azure_deployment"],
-    )
-
-
-def embedding_dimensions() -> int:
-    cfg = settings.embeddings
-    primary = (cfg.get("primary_provider") or "voyage").lower()
-    if primary == "voyage":
-        return int(cfg.get("voyage_dimensions", 1024))
-    return int(cfg.get("azure_dimensions", 3072))
+    With AutoEmbeddings the client never embeds text — `MongoDBAtlasVectorSearch`
+    detects the type and forwards raw text to Atlas's `$vectorSearch` stage,
+    which embeds and indexes server-side via the model named here.
+    """
+    from langchain_mongodb.embeddings import AutoEmbeddings
+    model = settings.embeddings.get("voyage_model") or "voyage-4"
+    log.info("Using AutoEmbeddings model=%s (Atlas-managed)", model)
+    return AutoEmbeddings(model=model)

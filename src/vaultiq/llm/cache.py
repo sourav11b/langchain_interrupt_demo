@@ -34,6 +34,14 @@ def install_semantic_cache() -> None:
         embedding=get_embeddings(),
         index_name="vaultiq_semcache_idx",
         score_threshold=float(cfg.get("score_threshold", 0.92)),
+        text_key="text",
+        embedding_key=None,
+        relevance_score_fn=None,
+        dimensions=-1,
+        # The cache's vectorSearch index is owned by `_ensure_vector_indexes()`
+        # so it carries the required `llm_string` filter field. We never let
+        # the vector store auto-create it (its helper omits the filter).
+        auto_create_index=False,
     )
     set_llm_cache(cache)
     _INSTALLED = True

@@ -68,9 +68,15 @@ def _ensure_geo() -> None:
 
 
 # ── Atlas Search / Vector Search ─────────────────────────────────────────────
-def _vector_index_def(field: str, dims: int, filters: list[str] | None = None) -> dict[str, Any]:
+def _autoembed_index_def(field: str, model: str, filters: list[str] | None = None) -> dict[str, Any]:
+    """vectorSearch index definition for Atlas Automated Embedding.
+
+    The `text` field type tells `mongot` to embed the field's text via the
+    named Voyage model at index- and query-time, so no client-side embedding
+    is performed. Filters are still supported via the standard `filter` type.
+    """
     fields: list[dict[str, Any]] = [
-        {"type": "vector", "path": field, "numDimensions": dims, "similarity": "cosine"}
+        {"type": "autoEmbed", "path": field, "model": model, "modality": "text"}
     ]
     for f in filters or []:
         fields.append({"type": "filter", "path": f})
@@ -122,22 +128,28 @@ def _ensure_search_index(coll_name: str, index_name: str, kind: str, definition:
 
 
 def _ensure_vector_indexes() -> None:
-    dims = int(settings.embeddings.get("voyage_dimensions", 1024))
+    model = settings.embeddings.get("voyage_model") or "voyage-4"
     idx = settings.index_names
     _ensure_search_index(
         C.fraud_kb, idx["vector_fraud_kb"], "vectorSearch",
-        _vector_index_def("embedding", dims, ["category", "severity"]),
+        _autoembed_index_def("text", model, ["category", "severity"]),
     )
     _ensure_search_index(
         C.case_notes, idx["vector_case_notes"], "vectorSearch",
-        _vector_index_def("embedding", dims, ["customer_id", "case_id"]),
+        _autoembed_index_def("text", model, ["customer_id", "case_id"]),
     )
     _ensure_search_index(
         C.sem_memory, idx["vector_sem_mem"], "vectorSearch",
-        _vector_index_def("embedding", dims, ["agent", "customer_id", "namespace"]),
+        _autoembed_index_def("text", model, ["agent", "customer_id", "namespace"]),
     )
     _ensure_search_index(C.fraud_kb, idx["fts_fraud_kb"], "search", _fts_index_def("text"))
     _ensure_search_index(C.case_notes, idx["fts_case_notes"], "search", _fts_index_def("text"))
+    # Semantic LLM cache: autoEmbed on the prompt text + filter on `llm_string`
+    # (the cache calls similarity_search with pre_filter={"llm_string": {"$eq": ...}}).
+    _ensure_search_index(
+        C.semantic_cache, "vaultiq_semcache_idx", "vectorSearch",
+        _autoembed_index_def("text", model, ["llm_string"]),
+    )
 
 
 # ── public ───────────────────────────────────────────────────────────────────

@@ -9,8 +9,6 @@ from langchain_core.tools import tool
 
 from ..db.collections import C
 from ..db.mongo_client import get_db
-from ..llm.factory import get_embeddings
-from ..settings import settings
 from ._common import jsonable
 
 VALID_STATUSES = {"NEW", "PENDING_CUSTOMER", "UNDER_INVESTIGATION", "RESOLVED_FRAUD",
@@ -80,16 +78,18 @@ def list_open_cases(customer_id: str | None = None, limit: int = 10) -> list[dic
 
 @tool
 def add_case_note(case_id: str, customer_id: str, note: str) -> dict:
-    """Persist an investigator note (vector-indexed for hybrid retrieval)."""
-    emb = get_embeddings().embed_query(note)
+    """Persist an investigator note (vector-indexed for hybrid retrieval).
+
+    Atlas AutoEmbeddings vectorises the `text` field server-side, so the
+    document only carries the raw text — no client-side embedding here.
+    """
     doc = {
         "case_id": case_id,
         "customer_id": customer_id,
         "ts": datetime.now(tz=timezone.utc),
         "text": note,
-        "embedding": emb,
     }
-    get_db()[C.case_notes].insert_one(doc)
+    get_db()[C.case_notes].insert_one(dict(doc))
     log_case_event.invoke({"case_id": case_id, "event_type": "note_added",
                            "payload": {"len": len(note)}})
     return {"case_id": case_id, "stored": True}

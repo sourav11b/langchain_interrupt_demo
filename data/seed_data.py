@@ -19,7 +19,6 @@ from faker import Faker
 from src.vaultiq.db.collections import C
 from src.vaultiq.db.indices import ensure_all_indexes
 from src.vaultiq.db.mongo_client import get_db
-from src.vaultiq.llm.factory import get_embeddings
 from src.vaultiq.logging_setup import configure_logging
 
 from .fraud_kb_corpus import KB_DOCS
@@ -192,10 +191,9 @@ def _gen_edges(customers: list[dict], cards: list[dict], devices: list[dict],
 
 
 def _embed_kb() -> list[dict]:
-    emb = get_embeddings()
-    texts = [d["text"] for d in KB_DOCS]
-    vectors = emb.embed_documents(texts)
-    return [{**d, "embedding": v} for d, v in zip(KB_DOCS, vectors)]
+    """Return KB docs unchanged — Atlas AutoEmbeddings vectorises the `text`
+    field server-side at index time, so no client-side embedding is needed."""
+    return [dict(d) for d in KB_DOCS]
 
 
 # ── public ───────────────────────────────────────────────────────────────────

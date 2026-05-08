@@ -1,25 +1,29 @@
 # ── VaultIQ runtime dependencies ──────────────────────────────────────────────
-# Core LangChain stack
-langchain>=0.3.20
-langchain-core>=0.3.40
-langchain-openai>=0.3.0
-langchain-community>=0.3.20
-langchain-voyageai>=0.1.4
+# Core LangChain stack — pinned to 1.x for langchain-mongodb AutoEmbeddings.
+langchain>=1.0,<2.0
+langchain-core>=1.2.5,<2.0
+langchain-classic>=1.0,<2.0
+langchain-text-splitters>=1.0,<2.0
+langchain-openai>=1.0,<2.0
+langchain-community>=0.4,<0.5
+# Voyage embedding now runs server-side via Atlas AutoEmbeddings, so the
+# langchain-voyageai client package (no langchain-core 1.x release) is no
+# longer required.
 
-# MongoDB integrations
-langchain-mongodb>=0.7.0
+# MongoDB integrations — 0.11.0 introduces AutoEmbeddings.
+langchain-mongodb>=0.11.0,<0.12
 pymongo>=4.10.0
 
 # LangGraph orchestration + Mongo checkpoint/store
-langgraph>=0.6.0
-langgraph-checkpoint-mongodb>=0.1.4
+langgraph>=1.0,<2.0
+langgraph-checkpoint-mongodb>=0.3.0
 langgraph-store-mongodb>=0.1.0
 
 # Deep Agents (a2a / sub-agents pattern)
 deepagents>=0.0.10
 
 # MCP integration (MongoDB MCP server bridge)
-langchain-mcp-adapters>=0.1.0
+langchain-mcp-adapters>=0.2.0
 mcp>=1.2.0
 
 # LangSmith observability

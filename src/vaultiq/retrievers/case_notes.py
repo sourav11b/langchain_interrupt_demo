@@ -5,12 +5,12 @@ from functools import lru_cache
 
 from langchain_core.retrievers import BaseRetriever
 from langchain_mongodb import MongoDBAtlasVectorSearch
-from langchain_mongodb.retrievers import MongoDBAtlasHybridSearchRetriever
 
 from ..db.collections import C
 from ..db.mongo_client import get_collection
 from ..llm.factory import get_embeddings
 from ..settings import settings
+from ._auto_hybrid import AutoEmbedHybridSearchRetriever
 
 
 @lru_cache(maxsize=1)
@@ -20,8 +20,10 @@ def case_notes_vectorstore() -> MongoDBAtlasVectorSearch:
         embedding=get_embeddings(),
         index_name=settings.index_names["vector_case_notes"],
         text_key="text",
-        embedding_key="embedding",
-        relevance_score_fn="cosine",
+        embedding_key=None,
+        relevance_score_fn=None,
+        dimensions=-1,
+        auto_create_index=False,
     )
 
 
@@ -32,8 +34,8 @@ def case_notes_vector_retriever(k: int = 4, customer_id: str | None = None) -> B
     return case_notes_vectorstore().as_retriever(search_kwargs=kw)
 
 
-def case_notes_hybrid_retriever(k: int = 4) -> MongoDBAtlasHybridSearchRetriever:
-    return MongoDBAtlasHybridSearchRetriever(
+def case_notes_hybrid_retriever(k: int = 4) -> AutoEmbedHybridSearchRetriever:
+    return AutoEmbedHybridSearchRetriever(
         vectorstore=case_notes_vectorstore(),
         search_index_name=settings.index_names["fts_case_notes"],
         top_k=k,

@@ -32,8 +32,10 @@ class SemanticMemory:
             embedding=get_embeddings(),
             index_name=settings.index_names["vector_sem_mem"],
             text_key="text",
-            embedding_key="embedding",
-            relevance_score_fn="cosine",
+            embedding_key=None,
+            relevance_score_fn=None,
+            dimensions=-1,
+            auto_create_index=False,
         )
 
     # ── write ────────────────────────────────────────────────────────────────
