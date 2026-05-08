@@ -17,6 +17,7 @@ from src.vaultiq.scenarios.injector import (
     SCENARIOS,
     build_scenario_transaction,
 )
+from src.vaultiq.tools._common import jsonable
 from src.vaultiq.ui.stream_runner import (
     execute_through_agents,
     fetch_collection_counts,
@@ -26,6 +27,14 @@ from src.vaultiq.ui.stream_runner import (
     generate_baseline_transaction,
 )
 
+
+def _safe_dt(value, fmt: str = "%H:%M:%S") -> str:
+    """Format any value that *might* be a datetime; never raise."""
+    try:
+        return value.strftime(fmt)
+    except Exception:
+        return str(value) if value is not None else "—"
+
 configure_logging()
 
 st.set_page_config(
@@ -33,6 +42,24 @@ st.set_page_config(
     page_icon="🛡️",
     layout="wide",
 )
+
+
+def _global_error_boundary() -> None:
+    """Streamlit re-raises uncaught exceptions and sometimes shows a blank
+    page on widget callbacks. Install a sys.excepthook-equivalent so any
+    unhandled error from this script renders inline as `st.exception`."""
+    import sys
+    import traceback
+
+    def _hook(exc_type, exc, tb):
+        st.error("Unhandled error — see traceback below")
+        st.exception(exc)
+        traceback.print_exception(exc_type, exc, tb, file=sys.stderr)
+
+    sys.excepthook = _hook
+
+
+_global_error_boundary()
 
 
 # ── session state ────────────────────────────────────────────────────────────
@@ -149,69 +176,82 @@ with left:
 
     st.subheader("🧠 Agent activity timeline")
     if runs:
-        sel_idx = st.selectbox(
-            "Inspect run",
-            options=list(range(len(runs[:20]))),
-            format_func=lambda i: f"{runs[i]['tx']['tx_id']}  ·  {runs[i]['tx'].get('scenario_label')}",
-            key="run_sel",
-        )
-        sel = runs[sel_idx]
-        for step in sel["result"].get("trace", []):
-            agent = step.get("agent", "?")
-            color = {
-                "fraud_sentinel": "#ff6b6b",
-                "customer_trust": "#ffa94d",
-                "case_resolution": "#4dabf7",
-                "memory_writer": "#82c91e",
-            }.get(agent, "#adb5bd")
-            with st.container(border=True):
-                st.markdown(
-                    f"<span style='background:{color};color:white;"
-                    f"padding:2px 8px;border-radius:6px;font-size:0.78rem'>{agent}</span> "
-                    f"<span style='color:#666;font-size:0.78rem'>{step.get('ts','')}</span>",
-                    unsafe_allow_html=True,
-                )
-                st.write(step.get("summary") or step)
-        with st.expander("🔬 Raw final state"):
-            st.json({k: v for k, v in sel["result"].items() if k != "messages"})
+        try:
+            sel_idx = st.selectbox(
+                "Inspect run",
+                options=list(range(len(runs[:20]))),
+                format_func=lambda i: f"{runs[i]['tx']['tx_id']}  ·  {runs[i]['tx'].get('scenario_label')}",
+                key="run_sel",
+            )
+            sel = runs[sel_idx]
+            for step in sel["result"].get("trace", []):
+                agent = step.get("agent", "?")
+                color = {
+                    "fraud_sentinel": "#ff6b6b",
+                    "customer_trust": "#ffa94d",
+                    "case_resolution": "#4dabf7",
+                    "memory_writer": "#82c91e",
+                }.get(agent, "#adb5bd")
+                with st.container(border=True):
+                    st.markdown(
+                        f"<span style='background:{color};color:white;"
+                        f"padding:2px 8px;border-radius:6px;font-size:0.78rem'>{agent}</span> "
+                        f"<span style='color:#666;font-size:0.78rem'>{step.get('ts','')}</span>",
+                        unsafe_allow_html=True,
+                    )
+                    st.write(step.get("summary") or jsonable(step))
+            with st.expander("🔬 Raw final state"):
+                st.json(jsonable({k: v for k, v in sel["result"].items() if k != "messages"}))
+        except Exception as exc:
+            st.error(f"Could not render agent timeline: {exc}")
 
 
 with right:
     st.subheader("🗂️ Open cases")
-    cases = fetch_recent_cases(limit=15)
+    try:
+        cases = fetch_recent_cases(limit=15)
+    except Exception as exc:
+        cases = []
+        st.error(f"Failed to fetch cases: {exc}")
     if cases:
         case_df = pd.DataFrame([
             {
-                "case_id": c["case_id"],
-                "status": c["status"],
+                "case_id": c.get("case_id"),
+                "status": c.get("status"),
                 "score": c.get("score"),
-                "customer": c["customer_id"],
+                "customer": c.get("customer_id"),
                 "tx": c.get("tx_id"),
-                "updated": c["updated_at"].strftime("%H:%M:%S")
-                if hasattr(c.get("updated_at"), "strftime") else str(c.get("updated_at")),
+                "updated": _safe_dt(c.get("updated_at")),
             } for c in cases
         ])
         st.dataframe(case_df, use_container_width=True, hide_index=True, height=260)
-        sel_case = st.selectbox("Case events", options=[c["case_id"] for c in cases])
-        evts = fetch_recent_case_events(sel_case, limit=20)
+        sel_case = st.selectbox("Case events", options=[c["case_id"] for c in cases], key="case_sel")
+        try:
+            evts = fetch_recent_case_events(sel_case, limit=20)
+        except Exception as exc:
+            evts = []
+            st.error(f"Failed to fetch case events: {exc}")
         for e in evts:
             with st.container(border=True):
-                st.caption(f"{e['ts']} · {e['type']}")
-                st.json(e.get("payload", {}))
+                st.caption(f"{_safe_dt(e.get('ts'))} · {e.get('type', '?')}")
+                st.json(jsonable(e.get("payload", {})))
     else:
         st.info("No cases yet.")
 
     st.subheader("📊 Score distribution (recent)")
     if runs:
-        scores = [
-            (r["result"].get("fraud") or {}).get("score") or 0
-            for r in runs
-        ]
-        bands = pd.Series(pd.cut(
-            scores,
-            bins=[-0.01, 0.4, 0.65, 0.9, 1.01],
-            labels=["low", "medium", "high", "critical"],
-        )).value_counts().reindex(["low", "medium", "high", "critical"], fill_value=0)
-        st.bar_chart(bands)
+        try:
+            scores = [
+                (r["result"].get("fraud") or {}).get("score") or 0
+                for r in runs
+            ]
+            bands = pd.Series(pd.cut(
+                scores,
+                bins=[-0.01, 0.4, 0.65, 0.9, 1.01],
+                labels=["low", "medium", "high", "critical"],
+            )).value_counts().reindex(["low", "medium", "high", "critical"], fill_value=0)
+            st.bar_chart(bands)
+        except Exception as exc:
+            st.warning(f"Score chart unavailable: {exc}")
     else:
         st.caption("Run something to see the distribution.")
