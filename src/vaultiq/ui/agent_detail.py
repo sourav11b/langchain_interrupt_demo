@@ -137,16 +137,16 @@ def _agent_svg(a: _Agent) -> str:
     tools = a["tools"]
     n = len(tools)
 
-    W = 380
-    agent_h, mongo_h, tool_h, gap = 96, 96, 56, 14
-    pad_top, pad_mid, pad_bot = 24, 28, 28
+    W = 560
+    agent_h, mongo_h, tool_h, gap = 130, 130, 72, 20
+    pad_top, pad_mid, pad_bot = 30, 36, 36
     tools_y0 = pad_top + agent_h + pad_mid
     tools_block = n * (tool_h + gap) - gap if n else 0
-    H = tools_y0 + tools_block + pad_bot + mongo_h + 20
+    H = tools_y0 + tools_block + pad_bot + mongo_h + 24
     spine_x = W // 2
     spine_top = pad_top + agent_h
-    spine_bot = H - 20 - mongo_h
-    box_w = W - 60
+    spine_bot = H - 24 - mongo_h
+    box_w = W - 80
     box_x = (W - box_w) // 2
 
     parts: list[str] = []
@@ -168,40 +168,40 @@ def _agent_svg(a: _Agent) -> str:
         '</defs>'
     )
 
-    # Spine: faint base + animated dashed overlay
+    # Spine: faint base + animated dashed overlay (thicker for visibility)
     parts.append(
         f'<line x1="{spine_x}" y1="{spine_top}" x2="{spine_x}" y2="{spine_bot}" '
-        f'stroke="url(#ag-spine)" stroke-width="3" opacity="0.35"/>'
+        f'stroke="url(#ag-spine)" stroke-width="5" opacity="0.35"/>'
         f'<line x1="{spine_x}" y1="{spine_top}" x2="{spine_x}" y2="{spine_bot}" '
-        f'stroke="url(#ag-spine)" stroke-width="2" stroke-dasharray="4 8" opacity="0.9">'
-        f'<animate attributeName="stroke-dashoffset" from="0" to="-72" dur="1.6s" '
+        f'stroke="url(#ag-spine)" stroke-width="3" stroke-dasharray="6 10" opacity="0.95">'
+        f'<animate attributeName="stroke-dashoffset" from="0" to="-96" dur="1.6s" '
         f'repeatCount="indefinite"/></line>'
     )
 
     # Agent box (top)
     parts.append(
         f'<g transform="translate({box_x} {pad_top})">'
-        f'<rect width="{box_w}" height="{agent_h}" rx="16" fill="#0f172a" '
-        f'stroke="{color}" stroke-width="2" filter="url(#ag-glow)"/>'
-        f'<text x="{box_w // 2}" y="38" text-anchor="middle" fill="{color}" '
-        f'font-size="22" font-weight="700">{a["icon"]} {a["name"]}</text>'
-        f'<text x="{box_w // 2}" y="62" text-anchor="middle" fill="#cbd5e1" '
-        f'font-size="11">🧠 LLM · 🔁 ReAct loop · 🧰 {n} tools</text>'
-        f'<text x="{box_w // 2}" y="80" text-anchor="middle" fill="#64748b" '
-        f'font-size="10">▼ packets stream into the tool spine</text>'
+        f'<rect width="{box_w}" height="{agent_h}" rx="20" fill="#0f172a" '
+        f'stroke="{color}" stroke-width="2.5" filter="url(#ag-glow)"/>'
+        f'<text x="{box_w // 2}" y="50" text-anchor="middle" fill="{color}" '
+        f'font-size="30" font-weight="800">{a["icon"]} {a["name"]}</text>'
+        f'<text x="{box_w // 2}" y="80" text-anchor="middle" fill="#cbd5e1" '
+        f'font-size="14">🧠 LLM · 🔁 ReAct loop · 🧰 {n} tools</text>'
+        f'<text x="{box_w // 2}" y="106" text-anchor="middle" fill="#64748b" '
+        f'font-size="12">▼ packets stream into the tool spine</text>'
         f'</g>'
     )
     # MongoDB box (bottom)
     parts.append(
         f'<g transform="translate({box_x} {spine_bot})">'
-        f'<rect width="{box_w}" height="{mongo_h}" rx="16" fill="#022c22" '
-        f'stroke="#10b981" stroke-width="2" filter="url(#ag-glow)"/>'
-        f'<text x="{box_w // 2}" y="36" text-anchor="middle" fill="#10b981" '
-        f'font-size="18" font-weight="700">🍃 MongoDB Atlas</text>'
-        f'<text x="{box_w // 2}" y="58" text-anchor="middle" fill="#a7f3d0" '
-        f'font-size="11">📑 structured · ⏱ time-series · 🌍 geo · 🕸 graph · 🧭 vector</text>'
-        f'<text x="{box_w // 2}" y="78" text-anchor="middle" fill="#64748b" '
-        f'font-size="10">▲ tool results return up the spine</text>'
+        f'<rect width="{box_w}" height="{mongo_h}" rx="20" fill="#022c22" '
+        f'stroke="#10b981" stroke-width="2.5" filter="url(#ag-glow)"/>'
+        f'<text x="{box_w // 2}" y="50" text-anchor="middle" fill="#10b981" '
+        f'font-size="26" font-weight="800">🍃 MongoDB Atlas</text>'
+        f'<text x="{box_w // 2}" y="80" text-anchor="middle" fill="#a7f3d0" '
+        f'font-size="13">📑 structured · ⏱ time-series · 🌍 geo · 🕸 graph · 🧭 vector</text>'
+        f'<text x="{box_w // 2}" y="106" text-anchor="middle" fill="#64748b" '
+        f'font-size="12">▲ tool results return up the spine</text>'
         f'</g>'
     )
 
@@ -216,13 +216,13 @@ def _agent_svg(a: _Agent) -> str:
         rw = " · ".join(x for x in (rd, wr) if x) or "— no I/O"
         parts.append(
             f'<g transform="translate({box_x} {ty})">'
-            f'<rect width="{box_w}" height="{tool_h}" rx="10" fill="#1e293b" '
-            f'stroke="{color}" stroke-width="1.2" opacity="0.96"/>'
-            f'<text x="14" y="22" fill="#f1f5f9" font-size="14">{ico}</text>'
-            f'<text x="40" y="22" fill="#e2e8f0" font-size="12" '
+            f'<rect width="{box_w}" height="{tool_h}" rx="14" fill="#1e293b" '
+            f'stroke="{color}" stroke-width="1.6" opacity="0.96"/>'
+            f'<text x="20" y="32" fill="#f1f5f9" font-size="22">{ico}</text>'
+            f'<text x="56" y="30" fill="#e2e8f0" font-size="16" '
             f'font-family="ui-monospace,monospace" font-weight="700">{t["name"]}</text>'
-            f'<text x="14" y="42" fill="#94a3b8" font-size="9.5">{rw[:60]}</text>'
-            f'<circle cx="{box_w - 14}" cy="14" r="4" fill="{color}" filter="url(#ag-glow)">'
+            f'<text x="20" y="56" fill="#94a3b8" font-size="12">{rw[:80]}</text>'
+            f'<circle cx="{box_w - 20}" cy="20" r="6" fill="{color}" filter="url(#ag-glow)">'
             f'<animate attributeName="opacity" values="0.3;1;0.3" dur="1.6s" '
             f'begin="{i * 0.18:.2f}s" repeatCount="indefinite"/></circle>'
             f'</g>'
@@ -231,12 +231,12 @@ def _agent_svg(a: _Agent) -> str:
     # Animated packets — agent → mongo (down, agent colour) and back (up, green)
     for k in range(3):
         parts.append(
-            f'<circle r="4.5" fill="{color}" filter="url(#ag-glow)">'
+            f'<circle r="6.5" fill="{color}" filter="url(#ag-glow)">'
             f'<animateMotion dur="2.4s" begin="{k * 0.8:.2f}s" repeatCount="indefinite">'
             f'<mpath href="#ag-down"/></animateMotion></circle>'
         )
         parts.append(
-            f'<circle r="3.5" fill="#10b981" opacity="0.85">'
+            f'<circle r="5.5" fill="#10b981" opacity="0.9">'
             f'<animateMotion dur="2.6s" begin="{0.4 + k * 0.8:.2f}s" repeatCount="indefinite">'
             f'<mpath href="#ag-up"/></animateMotion></circle>'
         )
@@ -258,24 +258,33 @@ def agent_page(agent_id: str) -> None:
         ui.space()
         ui.link("← back", "/").classes("text-xs opacity-80")
 
-    # Two-column layout: tall vertical pipeline on the left (sticky), prompt
-    # + tools stacked on the right.
+    # Two-column layout: tall vertical pipeline filling the LEFT HALF of the
+    # screen (sticky so it stays in view while you scroll the right panel),
+    # prompt + tools stacked on the right.
     with ui.row().classes("w-full p-4 gap-4 no-wrap items-start"):
-        # ── LEFT: vertical pipeline ──────────────────────────────────────
-        with ui.column().classes("w-[420px] shrink-0 sticky top-4 self-start gap-2"):
+        # ── LEFT HALF: vertical pipeline ─────────────────────────────────
+        with ui.column().classes(
+            "w-1/2 shrink-0 sticky top-4 self-start gap-2"
+        ).style("min-width:520px"):
             with ui.card().tight().classes(
-                "w-full bg-slate-900 p-3 rounded-xl"
-            ).style(f"border:1px solid {a['color']}55"):
+                "w-full bg-slate-900 p-4 rounded-xl"
+            ).style(f"border:2px solid {a['color']}77;"
+                    f"box-shadow:0 0 24px {a['color']}22"):
                 with ui.row().classes("items-center w-full gap-2"):
-                    ui.label("🔬").classes("text-lg")
-                    ui.label("Internal pipeline").classes("text-sm font-semibold opacity-90")
+                    ui.label("🔬").classes("text-2xl")
+                    ui.label("Internal pipeline").classes(
+                        "text-base font-bold tracking-wide"
+                    ).style(f"color:{a['color']}")
                     ui.space()
                     ui.label(f"⚙ {len(a['tools'])} tools").classes(
-                        "text-[10px] opacity-70 px-2 py-0.5 rounded bg-slate-800"
+                        "text-xs opacity-80 px-2 py-1 rounded bg-slate-800 font-mono"
                     )
-                ui.html(_agent_svg(a))
+                # Center the SVG so it doesn't get stretched on ultra-wide screens
+                with ui.row().classes("w-full justify-center"):
+                    ui.html(_agent_svg(a)).classes("w-full") \
+                        .style("max-width:640px")
                 ui.label("⬇ requests · ⬆ results · 🟢 hits to MongoDB Atlas").classes(
-                    "text-[10px] opacity-60 mt-1 text-center"
+                    "text-xs opacity-60 mt-2 text-center w-full"
                 )
 
         # ── RIGHT: prompt + tools stacked ────────────────────────────────
