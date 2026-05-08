@@ -106,83 +106,140 @@ AGENT_DETAILS: dict[str, _Agent] = {
 }
 
 
-# ── animated SVG: LLM ▶ ReAct loop ▶ tools ▶ MongoDB ──────────────────────
+TOOL_ICON: dict[str, str] = {
+    "score_transaction":        "⚖️",
+    "get_customer_profile":     "👤",
+    "get_recent_transactions":  "💳",
+    "distance_from_home_km":    "📏",
+    "last_tx_location":         "📍",
+    "geo_velocity_anomaly":     "🚀",
+    "customer_velocity":        "⚡",
+    "mcc_burst":                "💥",
+    "device_owner_graph":       "🕸",
+    "fraud_kb_lookup":          "📚",
+    "verify_identity_factors":  "🔍",
+    "request_otp":              "🔢",
+    "confirm_otp":              "✅",
+    "flag_kyc_step_up":         "🚩",
+    "list_open_cases":          "📋",
+    "open_case":                "📂",
+    "update_case":              "✏️",
+    "add_case_note":            "📝",
+    "log_case_event":           "📜",
+    "MongoDB MCP tools":        "🤖",
+    "SemanticMemory.remember":  "💾",
+}
+
+
+# ── vertical animated SVG: agent ▶ tool spine ▶ MongoDB Atlas ─────────────
 def _agent_svg(a: _Agent) -> str:
     color = a["color"]
     tools = a["tools"]
-    # vertical layout: tools fan out to the right of the agent, each linked
-    # to a per-tool MongoDB collection box at the bottom row.
     n = len(tools)
-    tool_w, tool_h, gap = 220, 38, 8
-    height = max(280, 60 + n * (tool_h + gap) + 40)
+
+    W = 380
+    agent_h, mongo_h, tool_h, gap = 96, 96, 56, 14
+    pad_top, pad_mid, pad_bot = 24, 28, 28
+    tools_y0 = pad_top + agent_h + pad_mid
+    tools_block = n * (tool_h + gap) - gap if n else 0
+    H = tools_y0 + tools_block + pad_bot + mongo_h + 20
+    spine_x = W // 2
+    spine_top = pad_top + agent_h
+    spine_bot = H - 20 - mongo_h
+    box_w = W - 60
+    box_x = (W - box_w) // 2
+
     parts: list[str] = []
-    parts.append(f'<svg viewBox="0 0 980 {height}" xmlns="http://www.w3.org/2000/svg" '
-                 f'preserveAspectRatio="xMidYMid meet" style="width:100%;height:auto;display:block">')
+    parts.append(
+        f'<svg viewBox="0 0 {W} {H}" xmlns="http://www.w3.org/2000/svg" '
+        f'preserveAspectRatio="xMidYMin meet" '
+        f'style="width:100%;height:auto;display:block">'
+    )
     parts.append(
         '<defs>'
-        '<filter id="ag-glow" x="-50%" y="-50%" width="200%" height="200%">'
-        '<feGaussianBlur stdDeviation="3"/><feMerge><feMergeNode/>'
-        '<feMergeNode in="SourceGraphic"/></feMerge></filter>'
+        '<filter id="ag-glow" x="-60%" y="-60%" width="220%" height="220%">'
+        '<feGaussianBlur stdDeviation="2.6"/><feMerge>'
+        '<feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge></filter>'
+        f'<linearGradient id="ag-spine" x1="0" y1="0" x2="0" y2="1">'
+        f'<stop offset="0%" stop-color="{color}"/>'
+        f'<stop offset="100%" stop-color="#10b981"/></linearGradient>'
+        f'<path id="ag-down" d="M {spine_x} {spine_top} L {spine_x} {spine_bot}"/>'
+        f'<path id="ag-up"   d="M {spine_x} {spine_bot} L {spine_x} {spine_top}"/>'
+        '</defs>'
     )
-    # motion paths: agent->each tool, tool->mongo
-    agent_x, agent_y = 30, 60
-    agent_w, agent_h = 220, 80
-    tool_x = agent_x + agent_w + 80
-    mongo_x, mongo_y, mongo_w, mongo_h = 660, 60, 280, 80
-    for i, _ in enumerate(tools):
-        ty = 50 + i * (tool_h + gap)
-        parts.append(f'<path id="t2t{i}" d="M {agent_x + agent_w} {agent_y + agent_h // 2} '
-                     f'C {tool_x - 30} {agent_y + agent_h // 2}, '
-                     f'{tool_x - 30} {ty + tool_h // 2}, {tool_x} {ty + tool_h // 2}"/>')
-        parts.append(f'<path id="t2m{i}" d="M {tool_x + tool_w} {ty + tool_h // 2} '
-                     f'L {mongo_x} {mongo_y + mongo_h // 2}"/>')
-    parts.append('</defs>')
 
-    # Agent box
+    # Spine: faint base + animated dashed overlay
     parts.append(
-        f'<g transform="translate({agent_x} {agent_y})">'
-        f'<rect width="{agent_w}" height="{agent_h}" rx="14" fill="#0f172a" '
+        f'<line x1="{spine_x}" y1="{spine_top}" x2="{spine_x}" y2="{spine_bot}" '
+        f'stroke="url(#ag-spine)" stroke-width="3" opacity="0.35"/>'
+        f'<line x1="{spine_x}" y1="{spine_top}" x2="{spine_x}" y2="{spine_bot}" '
+        f'stroke="url(#ag-spine)" stroke-width="2" stroke-dasharray="4 8" opacity="0.9">'
+        f'<animate attributeName="stroke-dashoffset" from="0" to="-72" dur="1.6s" '
+        f'repeatCount="indefinite"/></line>'
+    )
+
+    # Agent box (top)
+    parts.append(
+        f'<g transform="translate({box_x} {pad_top})">'
+        f'<rect width="{box_w}" height="{agent_h}" rx="16" fill="#0f172a" '
         f'stroke="{color}" stroke-width="2" filter="url(#ag-glow)"/>'
-        f'<text x="{agent_w // 2}" y="34" text-anchor="middle" fill="{color}" '
-        f'font-size="20">{a["icon"]} {a["name"]}</text>'
-        f'<text x="{agent_w // 2}" y="58" text-anchor="middle" fill="#94a3b8" '
-        f'font-size="11">LLM + ReAct loop</text>'
+        f'<text x="{box_w // 2}" y="38" text-anchor="middle" fill="{color}" '
+        f'font-size="22" font-weight="700">{a["icon"]} {a["name"]}</text>'
+        f'<text x="{box_w // 2}" y="62" text-anchor="middle" fill="#cbd5e1" '
+        f'font-size="11">🧠 LLM · 🔁 ReAct loop · 🧰 {n} tools</text>'
+        f'<text x="{box_w // 2}" y="80" text-anchor="middle" fill="#64748b" '
+        f'font-size="10">▼ packets stream into the tool spine</text>'
         f'</g>'
     )
-    # Mongo box
+    # MongoDB box (bottom)
     parts.append(
-        f'<g transform="translate({mongo_x} {mongo_y})">'
-        f'<rect width="{mongo_w}" height="{mongo_h}" rx="14" fill="#022c22" '
+        f'<g transform="translate({box_x} {spine_bot})">'
+        f'<rect width="{box_w}" height="{mongo_h}" rx="16" fill="#022c22" '
         f'stroke="#10b981" stroke-width="2" filter="url(#ag-glow)"/>'
-        f'<text x="{mongo_w // 2}" y="34" text-anchor="middle" fill="#10b981" '
-        f'font-size="16">🍃 MongoDB Atlas</text>'
-        f'<text x="{mongo_w // 2}" y="56" text-anchor="middle" fill="#94a3b8" '
-        f'font-size="11">collections involved by this agent</text>'
+        f'<text x="{box_w // 2}" y="36" text-anchor="middle" fill="#10b981" '
+        f'font-size="18" font-weight="700">🍃 MongoDB Atlas</text>'
+        f'<text x="{box_w // 2}" y="58" text-anchor="middle" fill="#a7f3d0" '
+        f'font-size="11">📑 structured · ⏱ time-series · 🌍 geo · 🕸 graph · 🧭 vector</text>'
+        f'<text x="{box_w // 2}" y="78" text-anchor="middle" fill="#64748b" '
+        f'font-size="10">▲ tool results return up the spine</text>'
         f'</g>'
     )
-    # Per-tool boxes + edges + animated packets
+
+    # Per-tool boxes stacked along the spine
     for i, t in enumerate(tools):
-        ty = 50 + i * (tool_h + gap)
-        rw = ", ".join(t.get("reads", []) + [f"+{x}" for x in t.get("writes", [])]) or "—"
-        parts.append(f'<use href="#t2t{i}" stroke="#475569" stroke-width="1.5" fill="none" '
-                     f'stroke-dasharray="3 4"/>')
-        parts.append(f'<use href="#t2m{i}" stroke="#334155" stroke-width="1.2" fill="none" '
-                     f'stroke-dasharray="3 4" opacity="0.7"/>')
+        ty = tools_y0 + i * (tool_h + gap)
+        ico = TOOL_ICON.get(t["name"], "🔧")
+        reads = t.get("reads", [])
+        writes = t.get("writes", [])
+        rd = ("📥 " + ", ".join(reads)) if reads else ""
+        wr = ("📤 " + ", ".join(writes)) if writes else ""
+        rw = " · ".join(x for x in (rd, wr) if x) or "— no I/O"
         parts.append(
-            f'<g transform="translate({tool_x} {ty})">'
-            f'<rect width="{tool_w}" height="{tool_h}" rx="8" fill="#1e293b" '
-            f'stroke="{color}" stroke-width="1"/>'
-            f'<text x="10" y="16" fill="#e2e8f0" font-size="11" '
+            f'<g transform="translate({box_x} {ty})">'
+            f'<rect width="{box_w}" height="{tool_h}" rx="10" fill="#1e293b" '
+            f'stroke="{color}" stroke-width="1.2" opacity="0.96"/>'
+            f'<text x="14" y="22" fill="#f1f5f9" font-size="14">{ico}</text>'
+            f'<text x="40" y="22" fill="#e2e8f0" font-size="12" '
             f'font-family="ui-monospace,monospace" font-weight="700">{t["name"]}</text>'
-            f'<text x="10" y="30" fill="#94a3b8" font-size="9.5">{rw[:48]}</text>'
+            f'<text x="14" y="42" fill="#94a3b8" font-size="9.5">{rw[:60]}</text>'
+            f'<circle cx="{box_w - 14}" cy="14" r="4" fill="{color}" filter="url(#ag-glow)">'
+            f'<animate attributeName="opacity" values="0.3;1;0.3" dur="1.6s" '
+            f'begin="{i * 0.18:.2f}s" repeatCount="indefinite"/></circle>'
             f'</g>'
         )
-        parts.append(f'<circle r="3.5" fill="{color}" filter="url(#ag-glow)">'
-                     f'<animateMotion dur="1.6s" repeatCount="indefinite" '
-                     f'begin="{i * 0.18:.2f}s"><mpath href="#t2t{i}"/></animateMotion></circle>')
-        parts.append(f'<circle r="3" fill="#10b981" opacity="0.85">'
-                     f'<animateMotion dur="2.0s" repeatCount="indefinite" '
-                     f'begin="{i * 0.22:.2f}s"><mpath href="#t2m{i}"/></animateMotion></circle>')
+
+    # Animated packets — agent → mongo (down, agent colour) and back (up, green)
+    for k in range(3):
+        parts.append(
+            f'<circle r="4.5" fill="{color}" filter="url(#ag-glow)">'
+            f'<animateMotion dur="2.4s" begin="{k * 0.8:.2f}s" repeatCount="indefinite">'
+            f'<mpath href="#ag-down"/></animateMotion></circle>'
+        )
+        parts.append(
+            f'<circle r="3.5" fill="#10b981" opacity="0.85">'
+            f'<animateMotion dur="2.6s" begin="{0.4 + k * 0.8:.2f}s" repeatCount="indefinite">'
+            f'<mpath href="#ag-up"/></animateMotion></circle>'
+        )
     parts.append('</svg>')
     return "".join(parts)
 
@@ -201,27 +258,78 @@ def agent_page(agent_id: str) -> None:
         ui.space()
         ui.link("← back", "/").classes("text-xs opacity-80")
 
-    with ui.column().classes("w-full p-4 gap-4"):
-        with ui.card().tight().classes("w-full bg-slate-900 p-3 rounded-lg"):
-            ui.label("🔬 Internal pipeline").classes("text-sm font-semibold opacity-80 mb-2")
-            ui.html(_agent_svg(a))
+    # Two-column layout: tall vertical pipeline on the left (sticky), prompt
+    # + tools stacked on the right.
+    with ui.row().classes("w-full p-4 gap-4 no-wrap items-start"):
+        # ── LEFT: vertical pipeline ──────────────────────────────────────
+        with ui.column().classes("w-[420px] shrink-0 sticky top-4 self-start gap-2"):
+            with ui.card().tight().classes(
+                "w-full bg-slate-900 p-3 rounded-xl"
+            ).style(f"border:1px solid {a['color']}55"):
+                with ui.row().classes("items-center w-full gap-2"):
+                    ui.label("🔬").classes("text-lg")
+                    ui.label("Internal pipeline").classes("text-sm font-semibold opacity-90")
+                    ui.space()
+                    ui.label(f"⚙ {len(a['tools'])} tools").classes(
+                        "text-[10px] opacity-70 px-2 py-0.5 rounded bg-slate-800"
+                    )
+                ui.html(_agent_svg(a))
+                ui.label("⬇ requests · ⬆ results · 🟢 hits to MongoDB Atlas").classes(
+                    "text-[10px] opacity-60 mt-1 text-center"
+                )
 
-        with ui.card().tight().classes("w-full bg-slate-900 p-3 rounded-lg"):
-            ui.label("📜 System-prompt summary").classes("text-sm font-semibold opacity-80")
-            ui.label(a["prompt"]).classes("text-sm opacity-90 whitespace-pre-wrap")
+        # ── RIGHT: prompt + tools stacked ────────────────────────────────
+        with ui.column().classes("flex-1 min-w-0 gap-4"):
+            with ui.card().tight().classes("w-full bg-slate-900 p-3 rounded-xl"):
+                with ui.row().classes("items-center gap-2"):
+                    ui.label("📜").classes("text-lg")
+                    ui.label("System-prompt summary").classes("text-sm font-semibold opacity-90")
+                ui.label(a["prompt"]).classes(
+                    "text-sm opacity-90 whitespace-pre-wrap mt-2"
+                )
 
-        with ui.card().tight().classes("w-full bg-slate-900 p-3 rounded-lg"):
-            ui.label("🛠 Tools — read / write surface").classes("text-sm font-semibold opacity-80")
-            cols = [
-                {"name": "tool",   "label": "tool",   "field": "name"},
-                {"name": "desc",   "label": "purpose", "field": "desc"},
-                {"name": "reads",  "label": "reads",  "field": "reads"},
-                {"name": "writes", "label": "writes", "field": "writes"},
-            ]
-            rows = [
-                {"name": t["name"], "desc": t["desc"],
-                 "reads":  ", ".join(t.get("reads",  [])) or "—",
-                 "writes": ", ".join(t.get("writes", [])) or "—"}
-                for t in a["tools"]
-            ]
-            ui.table(columns=cols, rows=rows, row_key="name").classes("w-full").props("dense flat")
+            with ui.card().tight().classes("w-full bg-slate-900 p-3 rounded-xl"):
+                with ui.row().classes("items-center gap-2"):
+                    ui.label("🛠").classes("text-lg")
+                    ui.label("Tools — read / write surface").classes(
+                        "text-sm font-semibold opacity-90"
+                    )
+                    ui.space()
+                    ui.label("📥 reads   📤 writes").classes("text-[10px] opacity-60")
+                with ui.column().classes("w-full mt-2 gap-1.5"):
+                    for t in a["tools"]:
+                        ico = TOOL_ICON.get(t["name"], "🔧")
+                        with ui.row().classes(
+                            "w-full items-start gap-2 p-2 rounded-md bg-slate-800/60"
+                        ):
+                            ui.label(ico).classes("text-base leading-tight w-6 text-center")
+                            with ui.column().classes("flex-1 min-w-0 gap-0.5"):
+                                with ui.row().classes("items-center gap-2 w-full"):
+                                    ui.label(t["name"]).classes(
+                                        "text-xs font-mono font-bold"
+                                    ).style(f"color:{a['color']}")
+                                    ui.space()
+                                    ui.label(t["desc"]).classes(
+                                        "text-[11px] opacity-75 text-right truncate"
+                                    )
+                                rd = t.get("reads", [])
+                                wr = t.get("writes", [])
+                                with ui.row().classes("items-center gap-2 flex-wrap"):
+                                    if rd:
+                                        ui.label("📥").classes("text-[11px]")
+                                        for c in rd:
+                                            ui.label(c).classes(
+                                                "text-[10px] font-mono px-1.5 py-0.5 "
+                                                "rounded bg-blue-900/40 text-blue-200"
+                                            )
+                                    if wr:
+                                        ui.label("📤").classes("text-[11px] ml-2")
+                                        for c in wr:
+                                            ui.label(c).classes(
+                                                "text-[10px] font-mono px-1.5 py-0.5 "
+                                                "rounded bg-rose-900/40 text-rose-200"
+                                            )
+                                    if not rd and not wr:
+                                        ui.label("— pure compute").classes(
+                                            "text-[10px] opacity-50"
+                                        )
