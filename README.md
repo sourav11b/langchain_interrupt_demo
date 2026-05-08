@@ -76,27 +76,32 @@ Requires Python ≥ 3.11, an MongoDB Atlas cluster with **Atlas Search** and
 **Atlas Vector Search** enabled, plus API keys for Azure OpenAI, Voyage AI and
 (optionally) LangSmith.
 
-```powershell
+Tested on Ubuntu 22.04 / 24.04 with the system `python3.12`.
+
+```bash
+sudo apt update && sudo apt install -y python3.12-venv git
+
 git clone https://github.com/sourav11b/langchain_interrupt_demo.git
 cd langchain_interrupt_demo
 
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
+python3 -m venv demo
+source demo/bin/activate
+pip install --upgrade pip
 pip install -r requirements.txt
 
-copy .env.example .env       # then fill in the keys
+cp .env.example .env          # then fill in the keys with your editor of choice
 ```
 
-All wiring (database name, collection names, index names, thresholds, agent
-params) lives in `config/vaultiq.properties`; only secrets/endpoints belong
-in `.env`. The default MongoDB database is **`langchain_interrupt_demo`** —
-every collection listed below lives inside it.
+All wiring (collection names, index names, thresholds, agent params) lives
+in `config/vaultiq.properties`; only secrets/endpoints belong in `.env`.
 
 ---
 
 ## Run
 
-```powershell
+From the repo root, with the `demo` virtualenv activated:
+
+```bash
 # 1. Create every index (BTree, 2dsphere, time-series, vector, FTS)
 python -m scripts.build_indexes
 
@@ -106,8 +111,9 @@ python -m scripts.seed
 # 3a. Smoke-test one scenario from the CLI
 python -m scripts.run_one --scenario ato_sim_swap
 
-# 3b. Or launch the live dashboard
-streamlit run app.py
+# 3b. Or launch the live dashboard (binds to 0.0.0.0 so you can hit it
+#     from outside the EC2 instance — open port 8501 in your security group)
+streamlit run app.py --server.address 0.0.0.0 --server.port 8501
 ```
 
 The dashboard exposes a sidebar with **Live stream** (auto-generates one tx
