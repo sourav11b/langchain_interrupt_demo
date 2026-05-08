@@ -54,15 +54,16 @@ if ! command -v screen >/dev/null 2>&1; then
   sudo apt-get install -y -qq screen
 fi
 
+CRON_LINE="@reboot /bin/bash /home/ubuntu/langchain_interrupt_demo/scripts/_screen_start.sh >>/home/ubuntu/vaultiq.log 2>&1"
+echo '== upserting @reboot crontab entry =='
+chmod +x /home/ubuntu/langchain_interrupt_demo/scripts/_screen_start.sh
+existing=$(crontab -l 2>/dev/null || true)
+filtered=$(printf '%s\n' "$existing" | grep -v '_screen_start.sh' || true)
+printf '%s\n%s\n' "$filtered" "$CRON_LINE" | sed '/^$/d' | crontab -
+crontab -l | grep -F '_screen_start.sh' || { echo '!! crontab install failed'; exit 1; }
+
 echo "== launching $SESSION in a detached screen =="
-: > "$LOG"
-screen -dmS "$SESSION" bash -lc "
-  cd /home/ubuntu/langchain_interrupt_demo
-  export VAULTIQ_PORT=8505
-  export VAULTIQ_HOST=0.0.0.0
-  export PYTHONUNBUFFERED=1
-  exec demo/bin/python app.py >>'$LOG' 2>&1
-"
+bash /home/ubuntu/langchain_interrupt_demo/scripts/_screen_start.sh
 
 echo '== waiting for port 8505 =='
 ok=0
