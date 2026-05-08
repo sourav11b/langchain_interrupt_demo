@@ -114,8 +114,13 @@ python -m scripts.run_one --scenario ato_sim_swap
 # 3b. Or launch the live NiceGUI dashboard. Default port is 8505 (override
 #     with VAULTIQ_PORT). On EC2, open the port in your security group.
 python app.py
-# or as a permanent systemd service:
-bash scripts/install_service.sh   # then `journalctl -u vaultiq -f`
+# or, on a server, run inside a detached `screen` session so it survives
+# the SSH connection closing (this is what `_deploy_remote.sh` does):
+screen -dmS vaultiq bash -lc \
+  "VAULTIQ_PORT=8505 VAULTIQ_HOST=0.0.0.0 demo/bin/python app.py >>~/vaultiq.log 2>&1"
+# then:  screen -r vaultiq   (Ctrl-A D to detach)
+#        tail -f ~/vaultiq.log
+#        screen -S vaultiq -X quit   (to stop)
 ```
 
 The dashboard exposes a sidebar with **Live stream** (auto-generates one tx

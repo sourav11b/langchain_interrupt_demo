@@ -1,14 +1,36 @@
 #!/usr/bin/env bash
-# Idempotent EC2 deploy. Runs git pull + pip install, installs the systemd
-# unit if it's not already there, then restarts the service.
+# Idempotent EC2 deploy. Pulls code + dependencies, then (re)launches the
+# NiceGUI app inside a detached `screen` session named `vaultiq` so it
+# survives the SSH connection closing.
 #
 #     ssh ubuntu@<host> bash -s < scripts/_deploy_remote.sh
+#
+# Operational commands once it's running:
+#     screen -ls                         # list sessions
+#     screen -r vaultiq                  # attach (detach with Ctrl-A then D)
+#     screen -S vaultiq -X quit          # stop the app
+#     tail -f /home/ubuntu/vaultiq.log   # follow logs without attaching
 set -euo pipefail
 cd /home/ubuntu/langchain_interrupt_demo
 
-echo '== killing any stray manual processes =='
-pkill -f 'streamlit run'              2>/dev/null || true
-pkill -f 'demo/bin/python.*app.py'    2>/dev/null || true
+SESSION=vaultiq
+LOG=/home/ubuntu/vaultiq.log
+
+echo '== one-time cleanup of the old systemd unit (if present) =='
+if systemctl list-unit-files 2>/dev/null | grep -q '^vaultiq\.service'; then
+  sudo systemctl disable --now vaultiq.service 2>/dev/null || true
+  sudo rm -f /etc/systemd/system/vaultiq.service
+  sudo systemctl daemon-reload || true
+  echo '   removed /etc/systemd/system/vaultiq.service'
+fi
+
+echo '== killing any stray app processes =='
+pkill -f 'streamlit run'           2>/dev/null || true
+pkill -f 'demo/bin/python.*app.py' 2>/dev/null || true
+sleep 1
+
+echo "== killing any existing screen session ($SESSION) =="
+screen -S "$SESSION" -X quit 2>/dev/null || true
 sleep 1
 
 echo '== git pull =='
@@ -25,9 +47,42 @@ import nicegui, sys
 print('nicegui', nicegui.__version__, 'python', sys.version.split()[0])
 PY
 
-echo '== systemd =='
-bash scripts/install_service.sh
+# Make sure `screen` is available.
+if ! command -v screen >/dev/null 2>&1; then
+  echo '== installing screen =='
+  sudo apt-get update -qq
+  sudo apt-get install -y -qq screen
+fi
 
-echo '== status =='
-systemctl --no-pager status vaultiq.service | head -10
-ss -ltn | grep 8505 || echo 'NO LISTENER on 8505'
+echo "== launching $SESSION in a detached screen =="
+: > "$LOG"
+screen -dmS "$SESSION" bash -lc "
+  cd /home/ubuntu/langchain_interrupt_demo
+  export VAULTIQ_PORT=8505
+  export VAULTIQ_HOST=0.0.0.0
+  export PYTHONUNBUFFERED=1
+  exec demo/bin/python app.py >>'$LOG' 2>&1
+"
+
+echo '== waiting for port 8505 =='
+ok=0
+for i in {1..30}; do
+  if ss -ltn '( sport = :8505 )' | grep -q 8505; then
+    echo "  ✅ listener ready after ${i}s"
+    ok=1
+    break
+  fi
+  sleep 1
+done
+
+echo '== screen sessions =='
+screen -ls || true
+
+if [[ "$ok" -ne 1 ]]; then
+  echo '!! port 8505 not listening — last 30 log lines:'
+  tail -n 30 "$LOG" || true
+  exit 1
+fi
+
+echo '== last 10 log lines =='
+tail -n 10 "$LOG" || true
