@@ -87,8 +87,10 @@ pip install -r requirements.txt
 copy .env.example .env       # then fill in the keys
 ```
 
-All wiring (collection names, index names, thresholds, agent params) lives
-in `config/vaultiq.properties`; only secrets/endpoints belong in `.env`.
+All wiring (database name, collection names, index names, thresholds, agent
+params) lives in `config/vaultiq.properties`; only secrets/endpoints belong
+in `.env`. The default MongoDB database is **`langchain_interrupt_demo`** —
+every collection listed below lives inside it.
 
 ---
 

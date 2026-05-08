@@ -71,7 +71,7 @@ class Settings:
 
     @property
     def mongo_db(self) -> str:
-        return self.get("mongodb", "database", "vaultiq")
+        return self.get("mongodb", "database", "langchain_interrupt_demo")
 
     @property
     def collections(self) -> dict[str, str]:
