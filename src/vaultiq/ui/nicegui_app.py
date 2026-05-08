@@ -17,6 +17,7 @@ from src.vaultiq.db.atlas_admin import AtlasAdminError, ensure_cluster_running, 
 from src.vaultiq.logging_setup import configure_logging
 from src.vaultiq.scenarios.injector import SCENARIOS, build_scenario_transaction
 from src.vaultiq.tools._common import jsonable
+from src.vaultiq.ui.flow_svg import flow_svg
 from src.vaultiq.ui.stream_runner import (
     execute_through_agents,
     fetch_collection_counts,
@@ -214,6 +215,25 @@ def index() -> None:
         cluster_banner.set_content(html)
 
     ui.timer(1.5, _refresh_banner, immediate=True)
+
+    # ── animated agent / data flow diagram ─────────────────────────────────
+    with ui.row().classes("w-full px-4 pt-2 items-center"):
+        ui.label("🔀 Agent + data flow").classes("text-sm font-semibold opacity-80")
+        ui.space()
+        flow_status = ui.label("packets flowing").classes("text-xs opacity-60")
+    flow_card = ui.card().tight().classes("w-full mx-4 my-1 bg-slate-900 rounded-lg p-2 overflow-hidden")
+    with flow_card:
+        ui.html(flow_svg()).classes("w-full")
+
+    def _flow_pulse():
+        # Speed-up cue: brighten the card border when an agent is mid-run.
+        active = STATE["running_jobs"] > 0
+        flow_card.classes(replace="w-full mx-4 my-1 rounded-lg p-2 overflow-hidden "
+                                  + ("bg-slate-800 ring-2 ring-rose-400 ring-offset-2 ring-offset-slate-900"
+                                     if active else "bg-slate-900"))
+        flow_status.set_text("⚡ live — agent run in flight" if active else "packets flowing")
+
+    ui.timer(0.8, _flow_pulse, immediate=True)
 
     # ── sidebar ────────────────────────────────────────────────────────────
     with ui.left_drawer(value=True, fixed=True).classes("bg-slate-800 text-white p-4 w-72"):
