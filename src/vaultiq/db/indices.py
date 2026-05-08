@@ -86,7 +86,25 @@ def _fts_index_def(text_field: str) -> dict[str, Any]:
     }
 
 
+def _ensure_collection(name: str) -> None:
+    """Create an empty collection if it does not yet exist.
+
+    Atlas Search / Vector Search index creation requires the target
+    collection to physically exist; pre-creating it makes the index step
+    safe to run before any documents have been inserted.
+    """
+    db = get_db()
+    if name in db.list_collection_names():
+        return
+    try:
+        db.create_collection(name)
+        log.info("Created empty collection %s (for search index)", name)
+    except CollectionInvalid:
+        pass
+
+
 def _ensure_search_index(coll_name: str, index_name: str, kind: str, definition: dict[str, Any]) -> None:
+    _ensure_collection(coll_name)
     db = get_db()
     coll = db[coll_name]
     try:
