@@ -20,8 +20,10 @@ from src.vaultiq.tools._common import jsonable
 from src.vaultiq.ui.flow_svg import flow_svg
 from src.vaultiq.ui import agent_detail as _agent_detail  # noqa: F401  registers /agent/{id}
 from src.vaultiq.ui import storage_detail as _storage_detail  # noqa: F401  registers /storage
+from src.vaultiq.ui.case_flow import render_case_flow
 from src.vaultiq.ui.stream_runner import (
     execute_through_agents,
+    fetch_case_flow,
     fetch_collection_counts,
     fetch_recent_case_events,
     fetch_recent_cases,
@@ -334,18 +336,15 @@ def index() -> None:
             for c in cases:
                 title = f"{c.get('case_id')} · {c.get('status')} · score={c.get('score')}"
                 with ui.expansion(title).classes("w-full"):
-                    ui.code(json.dumps(jsonable(c), indent=2)).classes("w-full text-xs")
+                    body = ui.column().classes("w-full gap-1")
                     try:
-                        evts = await _run_in_pool(fetch_recent_case_events, c.get("case_id"), 10)
+                        flow = await _run_in_pool(fetch_case_flow, c.get("case_id"))
                     except Exception as exc:
-                        ui.label(f"events fetch error: {exc}").classes("text-red-400")
+                        with body:
+                            ui.label(f"flow fetch error: {exc}").classes("text-red-400")
                         continue
-                    for e in evts:
-                        with ui.card().tight().classes("w-full p-2 mt-1"):
-                            ui.label(f"{_safe_dt(e.get('ts'))} · {e.get('type','?')}") \
-                                .classes("text-xs opacity-70")
-                            ui.code(json.dumps(jsonable(e.get("payload", {})), indent=2)) \
-                                .classes("w-full text-xs")
+                    with body:
+                        render_case_flow(flow)
 
     ui.timer(2.0, render_runs, immediate=True)
     ui.timer(6.0, render_cases, immediate=True)

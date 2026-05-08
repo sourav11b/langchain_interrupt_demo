@@ -90,6 +90,31 @@ def fetch_recent_case_events(case_id: str | None = None, limit: int = 50) -> lis
     return list(cur)
 
 
+def fetch_case_flow(case_id: str) -> dict:
+    """Single-call fetch of everything needed to draw the agent flow for a case.
+
+    Joins the case doc, its event timeline (oldest-first), the originating
+    transaction, and a thin slice of the customer profile in one round-trip.
+    """
+    db = get_db()
+    case = db[C.cases].find_one({"case_id": case_id}, {"_id": 0})
+    if not case:
+        return {"case": None, "events": [], "transaction": None, "customer": None}
+    events = list(
+        db[C.case_events].find({"case_id": case_id}, {"_id": 0}).sort("ts", 1)
+    )
+    tx = None
+    if case.get("tx_id"):
+        tx = db[C.transactions].find_one({"tx_id": case["tx_id"]}, {"_id": 0})
+    cust = None
+    if case.get("customer_id"):
+        cust = db[C.customers].find_one(
+            {"customer_id": case["customer_id"]},
+            {"_id": 0, "customer_id": 1, "name": 1, "risk_score": 1, "kyc_status": 1},
+        )
+    return {"case": case, "events": events, "transaction": tx, "customer": cust}
+
+
 def fetch_collection_counts() -> dict[str, int]:
     db = get_db()
     return {
