@@ -120,7 +120,7 @@ def get_settings() -> Settings:
 
     # Activate LangSmith from .env so any langchain import below is traced.
     if os.getenv("LANGCHAIN_TRACING_V2", "").lower() == "true" and os.getenv("LANGCHAIN_API_KEY"):
-        os.environ.setdefault("LANGCHAIN_PROJECT", os.getenv("LANGCHAIN_PROJECT", "vaultiq-fsi"))
+        os.environ.setdefault("LANGCHAIN_PROJECT", os.getenv("LANGCHAIN_PROJECT", "langchain_interrupt_demo"))
 
     raw = _load_properties(_PROPS_PATH)
     return Settings(raw=raw)
