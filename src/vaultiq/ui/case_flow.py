@@ -89,6 +89,11 @@ _ANIMATION_CSS = """
 .vq-event.vq-revealed { opacity: 1; transform: translateX(0); }
 
 .vq-progress-bar { transition: width 0.55s ease-out; }
+
+/* Stages that drill down to /agent_step/{case_id}/{stage} */
+a.vq-drill { display: block; text-decoration: none; cursor: pointer;
+             transition: transform 0.15s ease, filter 0.15s ease; }
+a.vq-drill:hover { transform: scale(1.018); filter: brightness(1.08); }
 """
 
 
@@ -279,13 +284,17 @@ def _stage_card(*, icon: str, title: str, color: str,
                 accent_text: str | None = None,
                 body_lines: list[str] | None = None,
                 chips: list[tuple[str, str]] | None = None,
-                muted: bool = False) -> None:
+                muted: bool = False,
+                drill_hint: bool = False) -> None:
     """One stage of the pipeline.
 
     Chips and the accent badge are tagged with `vq-chip` / `vq-stamp` so
     they get popped/stamped in by the orchestrator when the parent step is
     revealed. Outside a `.vq-step` wrapper they render normally because the
     animation CSS is scoped under `.vq-step`.
+
+    `drill_hint=True` shows a small `🔍` cue indicating the card is a
+    clickable drill-down link (visual affordance for the wrapping `<a>`).
     """
     op = "opacity-50" if muted else ""
     with ui.card().tight().classes(
@@ -300,6 +309,9 @@ def _stage_card(*, icon: str, title: str, color: str,
                 ui.label(accent_text).classes(
                     "vq-stamp text-[10px] font-mono px-1.5 py-0.5 rounded"
                 ).style(f"background:{color}22;color:{color};border:1px solid {color}55")
+            if drill_hint:
+                ui.label("🔍").classes("text-[11px] opacity-60 ml-1") \
+                    .tooltip("click for technical drill-down")
         for line in body_lines or []:
             ui.label(line).classes("text-[11px] opacity-85 mt-0.5 break-all")
         if chips:
@@ -324,13 +336,21 @@ def _score_bar(score: float | None, color: str) -> None:
 
 
 def _step(name: str, narration_html: str,
-          step_names: list[str], narrations: list[str]):
+          step_names: list[str], narrations: list[str],
+          drill_href: str | None = None):
     """Open a `.vq-step` wrapper and record its name/narration.
 
-    Returns the NiceGUI column so the caller can use it as a `with` block.
+    If `drill_href` is given, the wrapper is an `<a target="_blank">` so the
+    whole card becomes a clickable link to the technical drill-down. Otherwise
+    a plain column. Either way the wrapper carries `.vq-step` so the journey
+    orchestrator JS reveals it in sequence.
     """
     step_names.append(name)
     narrations.append(narration_html)
+    if drill_href:
+        return ui.link(target=drill_href, new_tab=True).classes(
+            "w-full vq-step vq-drill gap-0"
+        )
     return ui.column().classes("w-full vq-step gap-0")
 
 
@@ -353,9 +373,13 @@ def render_case_flow(flow: dict) -> None:
     st_icon, st_color = _STATUS_STYLE.get(status, ("📁", "#94a3b8"))
     escalated = float(score or 0.0) >= _MED
     kyc = _kyc_from_events(events)
+    cid = case.get("case_id", "")
 
     step_names: list[str] = []
     narrations: list[str] = []
+
+    def _drill(stage: str) -> str | None:
+        return f"/agent_step/{cid}/{stage}" if cid else None
 
     # CSS + orchestrator JS are injected once into <head> by case_page (so
     # they actually execute). Here we just build the body content.
@@ -390,7 +414,11 @@ def render_case_flow(flow: dict) -> None:
             'style="margin-top:10px;padding:8px 10px;background:#0f172a;'
             'border-left:3px solid #38bdf8;border-radius:4px;'
             'font-size:12px;line-height:1.5;min-height:38px;color:#e2e8f0">'
-            'Playing back the agent journey for this case…</div>'
+            'Playing back the agent journey for this case… '
+            '<span style="opacity:0.7">'
+            '🔍 click any stage card for the LangChain · LangGraph · '
+            'Atlas drill-down (opens in a new tab).'
+            '</span></div>'
         )
 
     # ── Pipeline body: each stage is a .vq-step wrapper ──────────────────
@@ -413,11 +441,13 @@ def render_case_flow(flow: dict) -> None:
             f"(merchant <code>{tx.get('merchant_id','?')}</code>). "
             f"It enters the LangGraph at the Fraud Sentinel node."
         )
-        with _step("Transaction", narr_tx, step_names, narrations):
+        with _step("Transaction", narr_tx, step_names, narrations,
+                   drill_href=_drill("transaction")):
             _stage_card(
                 icon="💳", title="Transaction", color="#38bdf8",
                 accent_text=_fmt_amount(tx.get("amount")),
                 body_lines=tx_lines or ["(transaction not found)"],
+                drill_hint=bool(cid),
             )
 
         _arrow()
@@ -432,12 +462,14 @@ def render_case_flow(flow: dict) -> None:
             f"<span style='color:{sc_color}'>({band})</span>. "
             f"Top reason: <i>{first_reason[:140]}</i>"
         )
-        with _step("Fraud Sentinel", narr_fs, step_names, narrations):
+        with _step("Fraud Sentinel", narr_fs, step_names, narrations,
+                   drill_href=_drill("fraud_sentinel")):
             _stage_card(
                 icon="🛡", title="Fraud Sentinel", color=sc_color,
                 accent_text=f"{float(score or 0):.2f} · {band}",
                 body_lines=None,
                 chips=reason_chips or None,
+                drill_hint=bool(cid),
             )
             # Score bar lives outside the chips row — render after the card
             # so it animates inside the same .vq-step wrapper.
@@ -465,7 +497,8 @@ def render_case_flow(flow: dict) -> None:
                 f"the customer was contacted for OTP step-up — outcome: "
                 f"<b>{v_txt}</b>, and the customer <b>{c_txt}</b>."
             )
-            with _step("Customer Trust", narr_kyc, step_names, narrations):
+            with _step("Customer Trust", narr_kyc, step_names, narrations,
+                       drill_href=_drill("customer_trust")):
                 _stage_card(
                     icon="🪪", title="Customer Trust", color="#ffa94d",
                     accent_text="verdict logged" if kyc_chips else "KYC step-up",
@@ -474,6 +507,7 @@ def render_case_flow(flow: dict) -> None:
                         f"customer kyc_status: {cust.get('kyc_status', '—')}",
                     ],
                     chips=kyc_chips or None,
+                    drill_hint=bool(cid),
                 )
             _arrow()
         else:
@@ -483,11 +517,13 @@ def render_case_flow(flow: dict) -> None:
                 f"<b>bypassed Customer Trust</b> and went straight to Case "
                 f"Resolution. No customer contact needed for this transaction."
             )
-            with _step("Customer Trust (skipped)", narr_skip, step_names, narrations):
+            with _step("Customer Trust (skipped)", narr_skip, step_names, narrations,
+                       drill_href=_drill("customer_trust")):
                 _stage_card(
                     icon="🪪", title="Customer Trust", color="#475569",
                     accent_text="skipped", muted=True,
                     body_lines=["routing bypassed this stage"],
+                    drill_hint=bool(cid),
                 )
             _arrow()
 
@@ -498,7 +534,8 @@ def render_case_flow(flow: dict) -> None:
             f"on case <code>{case.get('case_id','?')}</code>. An investigator "
             f"note was vector-indexed for future recall."
         )
-        with _step("Case Resolution", narr_case, step_names, narrations):
+        with _step("Case Resolution", narr_case, step_names, narrations,
+                   drill_href=_drill("case_resolution")):
             _stage_card(
                 icon="📁", title="Case Resolution", color=st_color,
                 accent_text=f"{st_icon} {status}",
@@ -507,6 +544,7 @@ def render_case_flow(flow: dict) -> None:
                     f"📅 opened {_fmt_ts(case.get('created_at'))} · "
                     f"updated {_fmt_ts(case.get('updated_at'))}",
                 ],
+                drill_hint=bool(cid),
             )
 
     # ── Event timeline strip — each event slides in after the journey ─────

@@ -22,6 +22,7 @@ from src.vaultiq.ui.flow_svg import flow_svg
 from src.vaultiq.ui import agent_detail as _agent_detail  # noqa: F401  registers /agent/{id}
 from src.vaultiq.ui import storage_detail as _storage_detail  # noqa: F401  registers /storage
 from src.vaultiq.ui import case_flow as _case_flow  # noqa: F401  registers /case/{id}
+from src.vaultiq.ui import agent_step as _agent_step  # noqa: F401  registers /agent_step/{cid}/{stage}
 from src.vaultiq.ui.stream_runner import (
     execute_through_agents,
     fetch_collection_counts,
