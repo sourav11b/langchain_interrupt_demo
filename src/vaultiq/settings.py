@@ -41,7 +41,10 @@ def _coerce(v: str) -> Any:
 
 
 def _load_properties(path: Path) -> dict[str, dict[str, Any]]:
-    cp = configparser.ConfigParser(interpolation=None)
+    cp = configparser.ConfigParser(
+        interpolation=None,
+        inline_comment_prefixes=("#", ";"),
+    )
     cp.optionxform = str  # preserve key case
     cp.read(path, encoding="utf-8")
     out: dict[str, dict[str, Any]] = {}
