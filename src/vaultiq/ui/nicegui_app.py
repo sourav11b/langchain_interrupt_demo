@@ -14,6 +14,10 @@ from typing import Any
 
 from nicegui import app, ui
 
+from src.vaultiq.agents.graph import (
+    get_orchestrator_state,
+    set_orchestrator_override,
+)
 from src.vaultiq.db.atlas_admin import AtlasAdminError, ensure_cluster_running, get_cluster_status
 from src.vaultiq.logging_setup import configure_logging
 from src.vaultiq.scenarios.injector import SCENARIOS, build_scenario_transaction
@@ -180,12 +184,48 @@ def index() -> None:
         ui.label("NextGen AI Financial Intelligence — MongoDB Atlas · LangGraph · LangSmith") \
             .classes("text-xs opacity-70 ml-3")
         ui.space()
+
+        # Orchestrator badge + toggle (Standard LangGraph ⇄ Deep Agents).
+        orch_state0 = get_orchestrator_state()
+        orch_badge = ui.html("").classes("mr-2")
+        orch_switch = ui.switch("Deep Agent", value=(orch_state0["active"] == "deep_agent")) \
+            .props("dense color=amber").classes("mr-4 text-xs")
+
+        def _render_orch_badge() -> None:
+            s = get_orchestrator_state()
+            if s["active"] == "deep_agent":
+                bg, label = "#d97706", "🤖 Deep Agent"
+            else:
+                bg, label = "#0ea5e9", "🛡️ LangGraph"
+            src = "override" if s["override"] is not None else ("env" if s["env_deep"] else "default")
+            orch_badge.set_content(
+                f'<span style="background:{bg};color:white;padding:2px 8px;border-radius:10px;'
+                f'font-size:10px;font-weight:600;letter-spacing:.3px" '
+                f'title="orchestrator source: {src}">{label}</span>'
+            )
+
+        def _on_orch_toggle(e) -> None:
+            set_orchestrator_override(bool(e.value))
+            _render_orch_badge()
+            ui.notify(
+                f"Orchestrator → {'Deep Agents (a2a)' if e.value else 'Standard LangGraph'}",
+                type="info", timeout=2500,
+            )
+
+        orch_switch.on_value_change(_on_orch_toggle)
+        _render_orch_badge()
+
         running_lbl = ui.label().classes("text-xs opacity-70 mr-4")
         clock_lbl = ui.label().classes("text-xs opacity-70")
 
         def _tick_header():
             running_lbl.set_text(f"jobs: {STATE['running_jobs']}")
             clock_lbl.set_text(datetime.now(tz=timezone.utc).strftime("%H:%M:%S UTC"))
+            # Re-sync if env / another tab flipped the override.
+            cur_active = get_orchestrator_state()["active"] == "deep_agent"
+            if orch_switch.value != cur_active:
+                orch_switch.value = cur_active
+                _render_orch_badge()
 
         ui.timer(1.0, _tick_header)
 

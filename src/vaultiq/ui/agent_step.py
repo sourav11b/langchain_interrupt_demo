@@ -501,9 +501,9 @@ def agent_step_page(case_id: str, stage: str) -> None:
                         '<span style="color:#38bdf8">▶</span> starting…</div>'
                     )
                     ui.space()
+                    # Click wired programmatically in _ANIMATION_JS.wireReplay()
                     ui.html(
-                        '<button id="vq-replay-btn" '
-                        'onclick="window.vqReplayCaseFlow && window.vqReplayCaseFlow()" '
+                        '<button id="vq-replay-btn" type="button" '
                         'style="display:none;background:#1e293b;color:#e2e8f0;'
                         'border:1px solid #334155;border-radius:6px;padding:4px 10px;'
                         'font-size:12px;cursor:pointer">↻ replay</button>'

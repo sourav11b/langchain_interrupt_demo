@@ -104,60 +104,78 @@ a.vq-drill:hover { transform: scale(1.018); filter: brightness(1.08); }
 # .vq-step elements every 150 ms (with a hard 12 s timeout) and start the
 # journey as soon as they appear. Step names and narration HTML are read
 # from hidden #vq-names / #vq-narrs spans rendered into the body.
-_ANIMATION_JS = """
+_ANIMATION_JS = r"""
 (function () {
   var runId = 0;
 
+  function $(id)   { return document.getElementById(id); }
+  function $$(sel) { return Array.prototype.slice.call(document.querySelectorAll(sel)); }
+
   function readJson(elId) {
-    var el = document.getElementById(elId);
+    var el = $(elId);
     if (!el) return [];
     try { return JSON.parse(el.textContent || '[]'); }
     catch (_) { return []; }
   }
 
+  // Force the browser to commit pending style changes so the next class add
+  // re-triggers CSS animations from frame 0 (otherwise browsers optimize the
+  // remove+add cycle away and the cards do not re-animate on replay).
+  function forceReflow(els) {
+    if (els && els.length && els[0]) { void els[0].offsetWidth; }
+  }
+
   function play() {
     var my = ++runId;
-    var steps  = Array.prototype.slice.call(document.querySelectorAll('.vq-step'));
-    if (steps.length === 0) return;
-    var arrows = Array.prototype.slice.call(document.querySelectorAll('.vq-arrow'));
-    var events = Array.prototype.slice.call(document.querySelectorAll('.vq-event'));
+    var steps = $$('.vq-step');
+    if (steps.length === 0) { console.log('[vaultiq] no .vq-step yet'); return; }
+    console.log('[vaultiq] play()  steps=' + steps.length + ' run=' + my);
+    var arrows = $$('.vq-arrow');
+    var events = $$('.vq-event');
     var names  = readJson('vq-names');
     var narrs  = readJson('vq-narrs');
-    var indi   = document.getElementById('vq-step-indicator');
-    var narrEl = document.getElementById('vq-narration');
-    var pbar   = document.getElementById('vq-progress-bar');
-    var replay = document.getElementById('vq-replay-btn');
 
+    // Reset state. forceReflow between remove and re-add (which happens in
+    // next() after the 350ms timeout below) makes CSS animations restart.
     steps.forEach(function (s) { s.classList.remove('vq-revealed', 'vq-active'); });
     arrows.forEach(function (a) { a.classList.remove('vq-active'); });
     events.forEach(function (e) { e.classList.remove('vq-revealed'); });
-    if (pbar)   pbar.style.width = '0%';
-    if (replay) replay.style.display = 'none';
+    forceReflow(steps);
+
+    var pbar0 = $('vq-progress-bar');
+    if (pbar0) pbar0.style.width = '0%';
+    var replay0 = $('vq-replay-btn');
+    if (replay0) replay0.style.display = 'none';
 
     var i = 0;
     function next() {
-      if (my !== runId) return;       // a newer play() superseded us
+      if (my !== runId) return;
       if (i >= steps.length) {
         events.forEach(function (e, j) {
           setTimeout(function () { e.classList.add('vq-revealed'); }, j * 220);
         });
-        if (indi)   indi.innerHTML =
-          '<span style="color:#10b981">✅</span> journey complete';
-        if (pbar)   pbar.style.width = '100%';
-        if (replay) replay.style.display = 'inline-flex';
+        var indi2 = $('vq-step-indicator');
+        if (indi2) indi2.innerHTML =
+          '<span style="color:#10b981">\u2705</span> journey complete';
+        var pbar2 = $('vq-progress-bar');
+        if (pbar2) pbar2.style.width = '100%';
+        var replay2 = $('vq-replay-btn');
+        if (replay2) replay2.style.display = 'inline-flex';
         return;
       }
       if (i > 0) {
         steps[i - 1].classList.remove('vq-active');
         if (arrows[i - 1]) arrows[i - 1].classList.add('vq-active');
       }
-      var cur = steps[i];
-      cur.classList.add('vq-revealed', 'vq-active');
+      steps[i].classList.add('vq-revealed', 'vq-active');
       var nm = names[i] || ('step ' + (i + 1));
+      var indi = $('vq-step-indicator');
       if (indi) indi.innerHTML =
-        '<span style="color:#38bdf8">▶</span> step ' + (i + 1) +
-        ' of ' + steps.length + ' · <b>' + nm + '</b>';
+        '<span style="color:#38bdf8">\u25B6</span> step ' + (i + 1) +
+        ' of ' + steps.length + ' \u00B7 <b>' + nm + '</b>';
+      var narrEl = $('vq-narration');
       if (narrEl && narrs[i] !== undefined) narrEl.innerHTML = narrs[i];
+      var pbar = $('vq-progress-bar');
       if (pbar) pbar.style.width = (((i + 1) / steps.length) * 100) + '%';
       i += 1;
       setTimeout(next, 1900);
@@ -165,16 +183,36 @@ _ANIMATION_JS = """
     setTimeout(next, 350);
   }
 
+  // Programmatic click wiring — more reliable than inline onclick across
+  // NiceGUI/Vue re-renders. Idempotent via the __vqWired marker.
+  function wireReplay() {
+    var btn = $('vq-replay-btn');
+    if (btn && !btn.__vqWired) {
+      btn.addEventListener('click', function (ev) {
+        ev.preventDefault();
+        console.log('[vaultiq] replay clicked');
+        play();
+      });
+      btn.__vqWired = true;
+      console.log('[vaultiq] replay button wired');
+    }
+  }
+
   window.vqReplayCaseFlow = play;
 
-  // Poll for the case body to mount (it streams in via NiceGUI WebSocket
-  // patches after the initial HTML response). Bail after ~12s.
+  // Poll for the case body to mount (streams in via NiceGUI WebSocket patches
+  // after the initial HTML response). Bail after ~12s; keep re-wiring slowly
+  // in case Vue replaces the button later.
   var attempts = 0;
   function tryStart() {
+    wireReplay();
     if (document.querySelectorAll('.vq-step').length > 0) {
       play();
+      setInterval(wireReplay, 1500);
     } else if (attempts++ < 80) {
       setTimeout(tryStart, 150);
+    } else {
+      console.log('[vaultiq] gave up waiting for .vq-step elements');
     }
   }
   if (document.readyState === 'loading') {
@@ -395,9 +433,9 @@ def render_case_flow(flow: dict) -> None:
                 '<span style="color:#38bdf8">▶</span> starting…</div>'
             )
             ui.space()
+            # Click is wired programmatically by _ANIMATION_JS.wireReplay().
             ui.html(
-                '<button id="vq-replay-btn" '
-                'onclick="window.vqReplayCaseFlow && window.vqReplayCaseFlow()" '
+                '<button id="vq-replay-btn" type="button" '
                 'style="display:none;background:#1e293b;color:#e2e8f0;'
                 'border:1px solid #334155;border-radius:6px;padding:4px 10px;'
                 'font-size:12px;cursor:pointer">↻ replay</button>'
