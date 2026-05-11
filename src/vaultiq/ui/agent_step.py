@@ -22,6 +22,7 @@ from nicegui import ui
 from src.vaultiq.ui.case_flow import (
     _ANIMATION_CSS,
     _ANIMATION_JS,
+    _SPEED_SELECT_HTML,
     _band_color,
     _fmt_amount,
     _STATUS_STYLE,
@@ -501,6 +502,7 @@ def agent_step_page(case_id: str, stage: str) -> None:
                         '<span style="color:#38bdf8">▶</span> starting…</div>'
                     )
                     ui.space()
+                    ui.html(_SPEED_SELECT_HTML)
                     # Click wired programmatically in _ANIMATION_JS.wireReplay()
                     ui.html(
                         '<button id="vq-replay-btn" type="button" '

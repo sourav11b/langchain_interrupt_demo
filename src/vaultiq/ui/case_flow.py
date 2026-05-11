@@ -125,6 +125,20 @@ _ANIMATION_JS = r"""
     if (els && els.length && els[0]) { void els[0].offsetWidth; }
   }
 
+  // Playback speed multiplier — read fresh on every setTimeout so changes
+  // mid-play take effect on the next step. Persisted in localStorage.
+  function getSpeed() {
+    var s = parseFloat(window.vqSpeed);
+    if (!isFinite(s) || s <= 0) s = 1;
+    return s;
+  }
+  function delay(baseMs) { return Math.max(50, Math.round(baseMs / getSpeed())); }
+
+  try {
+    var saved = parseFloat(localStorage.getItem('vqSpeed'));
+    if (isFinite(saved) && saved > 0) window.vqSpeed = saved;
+  } catch (_) { /* private mode etc. */ }
+
   function play() {
     var my = ++runId;
     var steps = $$('.vq-step');
@@ -152,7 +166,7 @@ _ANIMATION_JS = r"""
       if (my !== runId) return;
       if (i >= steps.length) {
         events.forEach(function (e, j) {
-          setTimeout(function () { e.classList.add('vq-revealed'); }, j * 220);
+          setTimeout(function () { e.classList.add('vq-revealed'); }, j * delay(220));
         });
         var indi2 = $('vq-step-indicator');
         if (indi2) indi2.innerHTML =
@@ -178,9 +192,9 @@ _ANIMATION_JS = r"""
       var pbar = $('vq-progress-bar');
       if (pbar) pbar.style.width = (((i + 1) / steps.length) * 100) + '%';
       i += 1;
-      setTimeout(next, 1900);
+      setTimeout(next, delay(1900));
     }
-    setTimeout(next, 350);
+    setTimeout(next, delay(350));
   }
 
   // Programmatic click wiring — more reliable than inline onclick across
@@ -198,6 +212,26 @@ _ANIMATION_JS = r"""
     }
   }
 
+  function wireSpeed() {
+    var sel = $('vq-speed-sel');
+    if (sel && !sel.__vqWired) {
+      // Reflect the persisted speed in the dropdown without firing change.
+      var cur = String(getSpeed());
+      for (var i = 0; i < sel.options.length; i++) {
+        if (sel.options[i].value === cur) { sel.selectedIndex = i; break; }
+      }
+      sel.addEventListener('change', function (ev) {
+        var v = parseFloat(ev.target.value);
+        if (isFinite(v) && v > 0) {
+          window.vqSpeed = v;
+          try { localStorage.setItem('vqSpeed', String(v)); } catch (_) {}
+          console.log('[vaultiq] speed -> ' + v + 'x');
+        }
+      });
+      sel.__vqWired = true;
+    }
+  }
+
   window.vqReplayCaseFlow = play;
 
   // Poll for the case body to mount (streams in via NiceGUI WebSocket patches
@@ -206,9 +240,10 @@ _ANIMATION_JS = r"""
   var attempts = 0;
   function tryStart() {
     wireReplay();
+    wireSpeed();
     if (document.querySelectorAll('.vq-step').length > 0) {
       play();
-      setInterval(wireReplay, 1500);
+      setInterval(function () { wireReplay(); wireSpeed(); }, 1500);
     } else if (attempts++ < 80) {
       setTimeout(tryStart, 150);
     } else {
@@ -222,6 +257,19 @@ _ANIMATION_JS = r"""
   }
 })();
 """
+
+# Playback-speed dropdown — change handler is wired by _ANIMATION_JS.wireSpeed().
+_SPEED_SELECT_HTML = (
+    '<select id="vq-speed-sel" title="playback speed" '
+    'style="background:#1e293b;color:#e2e8f0;border:1px solid #334155;'
+    'border-radius:6px;padding:3px 6px;font-size:12px;cursor:pointer">'
+    '<option value="0.5">0.5x</option>'
+    '<option value="1" selected>1x</option>'
+    '<option value="1.5">1.5x</option>'
+    '<option value="2">2x</option>'
+    '<option value="3">3x</option>'
+    '</select>'
+)
 
 # Score thresholds (kept in sync with `_route_after_fraud` in agents/graph.py
 # and the decision matrix in agents/case_agent.py).
@@ -433,6 +481,7 @@ def render_case_flow(flow: dict) -> None:
                 '<span style="color:#38bdf8">▶</span> starting…</div>'
             )
             ui.space()
+            ui.html(_SPEED_SELECT_HTML)
             # Click is wired programmatically by _ANIMATION_JS.wireReplay().
             ui.html(
                 '<button id="vq-replay-btn" type="button" '
