@@ -64,15 +64,38 @@ def _build_server_config() -> dict[str, Any]:
 _MCP_TOOLS_CACHE: list[BaseTool] | None = None
 
 
+def _mcp_enabled() -> bool:
+    """MCP is opt-in. Set MONGODB_MCP_ENABLED=true (or 1/yes/on) to turn it on.
+
+    Default is OFF because the embedded transport spawns `npx mongodb-mcp-server`
+    over stdio inside an asyncio.run() called from a worker thread, which on
+    Linux + uvloop (uvicorn/NiceGUI) deadlocks: the worker-thread loop has no
+    SIGCHLD child watcher, so subprocess stdio handshake never completes and
+    case_node hangs for the full agent timeout. The case agent has dedicated
+    CRM tools (open_case / update_case / add_case_note / log_case_event /
+    list_open_cases / log_case_event) that cover its decision flow without
+    needing ad-hoc Mongo querying.
+    """
+    val = os.getenv("MONGODB_MCP_ENABLED", "").strip().lower()
+    return val in {"1", "true", "yes", "on"}
+
+
 def get_mongodb_mcp_tools() -> list[BaseTool]:
     """Return MCP-backed LangChain tools, or an empty list if MCP is unavailable.
 
     Wraps the cold-cache load in a threading.Lock so concurrent agent threads
     don't both spawn `npx mongodb-mcp-server`. Logs entry/exit + elapsed time
-    so a hang here is visible in the timeline.
+    so a hang here is visible in the timeline. Honors MONGODB_MCP_ENABLED;
+    if unset/false, returns [] instantly without spawning anything.
     """
     global _MCP_TOOLS_CACHE
     if _MCP_TOOLS_CACHE is not None:
+        return _MCP_TOOLS_CACHE
+
+    if not _mcp_enabled():
+        log.info("get_mongodb_mcp_tools: MCP disabled (set MONGODB_MCP_ENABLED=true to opt in) "
+                 "— returning [] without spawning npx mongodb-mcp-server")
+        _MCP_TOOLS_CACHE = []
         return _MCP_TOOLS_CACHE
 
     tid = threading.get_ident()
