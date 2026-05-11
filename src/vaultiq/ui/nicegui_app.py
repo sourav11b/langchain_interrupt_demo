@@ -324,8 +324,18 @@ def index() -> None:
     with ui.left_drawer(value=True, fixed=True).classes("bg-slate-800 text-white p-4 w-72"):
         ui.label("⚙️ Controls").classes("text-lg font-semibold mb-2")
 
-        live_sw = ui.switch("Live stream (one tx / 6 s)", value=False)
-        live_sw.on_value_change(lambda e: STATE.update(auto_run=bool(e.value)))
+        # Sticky across hard-refreshes via per-browser server-side storage
+        # (requires storage_secret in main(), which is already set).
+        _saved_live = bool(app.storage.user.get("vq_live_stream", False))
+        STATE["auto_run"] = _saved_live
+        live_sw = ui.switch("Live stream (one tx / 6 s)", value=_saved_live)
+
+        def _on_live_toggle(e) -> None:
+            v = bool(e.value)
+            STATE["auto_run"] = v
+            app.storage.user["vq_live_stream"] = v
+
+        live_sw.on_value_change(_on_live_toggle)
 
         ui.label("Inject scenario").classes("mt-4 font-semibold")
         scenario_options = {s.id: f"{s.label}  · hint {s.risk_hint}" for s in SCENARIOS}
@@ -343,6 +353,7 @@ def index() -> None:
             if not ready and live_sw.value:
                 live_sw.value = False
                 STATE["auto_run"] = False
+                app.storage.user["vq_live_stream"] = False
 
         ui.timer(1.5, _gate_controls, immediate=True)
 
