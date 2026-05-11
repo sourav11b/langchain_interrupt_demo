@@ -51,12 +51,9 @@ GROUPS: list[tuple[str, str, str, str, list[tuple[str, str, str]]]] = [
     ("LangGraph state", "#4dabf7", "🧩", "📦", [
         ("checkpoints",       C.checkpoints,       "Checkpoint snapshots"),
         ("checkpoint_writes", C.checkpoint_writes, "Per-step deltas"),
-        ("store",             C.store,             "Long-term k/v store"),
-        ("chat_history",      C.chat_history,      "Per-session messages"),
     ]),
     ("LLM cache", "#f87171", "⚡", "💾", [
         ("semantic_cache", C.semantic_cache, "Similarity-keyed cache"),
-        ("llm_cache",      C.llm_cache,      "Exact-match cache"),
     ]),
 ]
 
