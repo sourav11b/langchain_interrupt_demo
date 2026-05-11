@@ -241,7 +241,14 @@ TX_COLUMNS = [
 @ui.page("/")
 def index() -> None:
     ui.dark_mode().enable()
-    ui.add_head_html("<style>.q-table tbody td{font-size:.78rem}.q-table thead th{font-size:.78rem;font-weight:600}</style>")
+    ui.add_head_html(
+        "<style>"
+        ".q-table tbody td{font-size:.78rem}"
+        ".q-table thead th{font-size:.78rem;font-weight:600}"
+        ".vq-tx-table tbody tr{cursor:pointer;transition:background-color .12s}"
+        ".vq-tx-table tbody tr:hover{background-color:#1e293b !important}"
+        "</style>"
+    )
 
     # Kick off the cluster check on first ever page load.
     if not STATE["cluster_check_started"]:
@@ -395,9 +402,39 @@ def index() -> None:
     with ui.row().classes("w-full no-wrap gap-4 p-4 items-stretch"):
         # left
         with ui.column().classes("flex-1 min-w-0 gap-3"):
-            ui.label("📡 Live transaction feed").classes("text-lg font-semibold")
+            with ui.row().classes("w-full items-center gap-2"):
+                ui.label("📡 Live transaction feed").classes("text-lg font-semibold")
+                ui.label("· click a row for the full execution path") \
+                    .classes("text-xs opacity-60")
             tx_table = ui.table(columns=TX_COLUMNS, rows=[], row_key="tx_id") \
-                .classes("w-full").props("dense flat")
+                .classes("w-full vq-tx-table").props("dense flat")
+
+            def _on_tx_row_click(e) -> None:
+                # Quasar emits [native_event, row_dict, row_index]; NiceGUI
+                # passes that through as e.args. Be defensive about the shape.
+                row: dict | None = None
+                args = getattr(e, "args", None)
+                if isinstance(args, list) and len(args) >= 2 and isinstance(args[1], dict):
+                    row = args[1]
+                elif isinstance(args, dict):
+                    row = args.get("row") if "row" in args else args
+                if not row:
+                    return
+                cid = row.get("case")
+                tx_id = row.get("tx_id") or "?"
+                if cid and cid != "—":
+                    ui.run_javascript(
+                        f"window.open('/case/{cid}', '_blank', 'noopener')"
+                    )
+                else:
+                    ui.notify(
+                        f"No case opened for {tx_id} — fraud score below "
+                        f"escalation threshold (low-risk path short-circuits "
+                        f"to memory_writer).",
+                        type="info", timeout=5000,
+                    )
+
+            tx_table.on("row-click", _on_tx_row_click)
 
             ui.label("🧠 Agent activity timeline (latest run)").classes("text-lg font-semibold mt-2")
             timeline = ui.column().classes("w-full gap-1")
