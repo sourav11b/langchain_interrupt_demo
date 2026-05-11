@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 from datetime import datetime, timezone
 from typing import Any
 
@@ -91,8 +92,20 @@ AGENT_COLOR = {
 
 
 # ── async helpers (off-loop blocking work) ───────────────────────────────────
+# Hard ceiling on a single agent run. asyncio.wait_for cancels the awaiter so
+# `finally` blocks decrement `running_jobs` and the UI never freezes; the
+# underlying thread-pool work may still complete in the background. Tune via
+# VAULTIQ_AGENT_TIMEOUT_S (seconds).
+_AGENT_TIMEOUT_S = int(os.getenv("VAULTIQ_AGENT_TIMEOUT_S", "180"))
+
+
 async def _run_in_pool(fn, *args):
     return await asyncio.get_running_loop().run_in_executor(None, fn, *args)
+
+
+async def _run_agent_with_timeout(fn, *args):
+    """`_run_in_pool` + asyncio.wait_for so a stuck LLM/Mongo can't leak jobs."""
+    return await asyncio.wait_for(_run_in_pool(fn, *args), timeout=_AGENT_TIMEOUT_S)
 
 
 async def ensure_cluster_task() -> None:
@@ -127,7 +140,7 @@ async def inject_one(scenario_id: str) -> None:
     try:
         tx = await _run_in_pool(build_scenario_transaction, scenario_id)
         ui.notify(f"Running {tx['tx_id']} through 3-agent flow…", type="ongoing", timeout=2000)
-        result = await _run_in_pool(execute_through_agents, tx)
+        result = await _run_agent_with_timeout(execute_through_agents, tx)
         STATE["runs"].insert(0, {"tx": tx, "result": result})
         STATE["runs"][:] = STATE["runs"][:25]
         score = (result.get("fraud") or {}).get("score")
@@ -135,6 +148,13 @@ async def inject_one(scenario_id: str) -> None:
         ui.notify(
             f"✅ {tx['tx_id']}  score={score}  case={case_id or '—'}",
             type="positive", timeout=4000,
+        )
+    except asyncio.TimeoutError:
+        log.warning("inject_one timed out after %ds", _AGENT_TIMEOUT_S)
+        ui.notify(
+            f"⏱ Agent run timed out after {_AGENT_TIMEOUT_S}s — check logs "
+            f"(LLM rate-limit, Mongo slow query, or network).",
+            type="negative", timeout=8000,
         )
     except Exception as exc:
         log.exception("inject_one failed")
@@ -185,9 +205,23 @@ async def stream_tick() -> None:
     STATE["running_jobs"] += 1
     try:
         tx = await _run_in_pool(generate_baseline_transaction)
-        result = await _run_in_pool(execute_through_agents, tx)
+        result = await _run_agent_with_timeout(execute_through_agents, tx)
         STATE["runs"].insert(0, {"tx": tx, "result": result})
         STATE["runs"][:] = STATE["runs"][:25]
+    except asyncio.TimeoutError:
+        log.warning("stream_tick timed out after %ds — pausing live stream",
+                    _AGENT_TIMEOUT_S)
+        # Pause auto-stream so we don't pile up more hung runs.
+        STATE["auto_run"] = False
+        try:
+            app.storage.user["vq_live_stream"] = False
+        except Exception:
+            pass
+        ui.notify(
+            f"⏱ Live stream tick timed out after {_AGENT_TIMEOUT_S}s — "
+            f"auto-paused. Toggle back on after fixing.",
+            type="negative", timeout=8000,
+        )
     except Exception as exc:
         log.exception("stream_tick failed")
         ui.notify(f"⚠ stream tick failed: {exc}", type="warning", timeout=4000)
