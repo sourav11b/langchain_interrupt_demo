@@ -95,8 +95,10 @@ AGENT_COLOR = {
 # Hard ceiling on a single agent run. asyncio.wait_for cancels the awaiter so
 # `finally` blocks decrement `running_jobs` and the UI never freezes; the
 # underlying thread-pool work may still complete in the background. Tune via
-# VAULTIQ_AGENT_TIMEOUT_S (seconds).
-_AGENT_TIMEOUT_S = int(os.getenv("VAULTIQ_AGENT_TIMEOUT_S", "180"))
+# VAULTIQ_AGENT_TIMEOUT_S (seconds). Default is intentionally generous (10 min)
+# so legitimate long runs surface real errors instead of hiding behind
+# timeouts — bump higher if you'd rather see the real failure mode.
+_AGENT_TIMEOUT_S = int(os.getenv("VAULTIQ_AGENT_TIMEOUT_S", "600"))
 
 
 async def _run_in_pool(fn, *args):
@@ -106,31 +108,6 @@ async def _run_in_pool(fn, *args):
 async def _run_agent_with_timeout(fn, *args):
     """`_run_in_pool` + asyncio.wait_for so a stuck LLM/Mongo can't leak jobs."""
     return await asyncio.wait_for(_run_in_pool(fn, *args), timeout=_AGENT_TIMEOUT_S)
-
-
-def _safe_notify(*args, **kwargs) -> None:
-    """`ui.notify` that survives a parent-slot deletion mid-run.
-
-    If the user hard-refreshes (or closes the tab) while a long agent run is
-    in flight, the click-handler that spawned the run no longer has a live
-    parent slot to anchor toasts to. NiceGUI then raises
-    `RuntimeError: The parent element this slot belongs to has been deleted.`
-    from inside `ui.notify`, which propagates out of the asyncio task and
-    crashes its done-callback (NiceGUI's own `handle_exception` also touches
-    `context.client` and re-raises). The visible symptom is a frozen "running"
-    badge and a dropped success toast even though the agent run finished.
-
-    Best-effort: log + swallow. The data has already been written to STATE/Mongo
-    by the time we get here; only the toast is non-essential.
-    """
-    try:
-        ui.notify(*args, **kwargs)
-    except RuntimeError as exc:
-        # Slot-deletion is the expected failure mode; anything else re-raises.
-        if "slot" in str(exc).lower() or "client" in str(exc).lower():
-            log.debug("ui.notify dropped (orphaned slot): %s", exc)
-            return
-        raise
 
 
 async def ensure_cluster_task() -> None:
@@ -159,31 +136,31 @@ def _cluster_is_ready() -> bool:
 
 async def inject_one(scenario_id: str) -> None:
     if not _cluster_is_ready():
-        _safe_notify("Atlas cluster not ready yet — please wait.", type="warning")
+        ui.notify("Atlas cluster not ready yet — please wait.", type="warning")
         return
     STATE["running_jobs"] += 1
     try:
         tx = await _run_in_pool(build_scenario_transaction, scenario_id)
-        _safe_notify(f"Running {tx['tx_id']} through 3-agent flow…", type="ongoing", timeout=2000)
+        ui.notify(f"Running {tx['tx_id']} through 3-agent flow…", type="ongoing", timeout=2000)
         result = await _run_agent_with_timeout(execute_through_agents, tx)
         STATE["runs"].insert(0, {"tx": tx, "result": result})
         STATE["runs"][:] = STATE["runs"][:25]
         score = (result.get("fraud") or {}).get("score")
         case_id = (result.get("case") or {}).get("case_id")
-        _safe_notify(
+        ui.notify(
             f"✅ {tx['tx_id']}  score={score}  case={case_id or '—'}",
             type="positive", timeout=4000,
         )
     except asyncio.TimeoutError:
         log.warning("inject_one timed out after %ds", _AGENT_TIMEOUT_S)
-        _safe_notify(
+        ui.notify(
             f"⏱ Agent run timed out after {_AGENT_TIMEOUT_S}s — check logs "
             f"(LLM rate-limit, Mongo slow query, or network).",
             type="negative", timeout=8000,
         )
     except Exception as exc:
         log.exception("inject_one failed")
-        _safe_notify(f"❌ inject failed: {exc}", type="negative", timeout=8000)
+        ui.notify(f"❌ inject failed: {exc}", type="negative", timeout=8000)
     finally:
         STATE["running_jobs"] -= 1
 
@@ -191,10 +168,10 @@ async def inject_one(scenario_id: str) -> None:
 async def do_reset(*, keep_history: bool, do_seed: bool) -> None:
     """Run scripts.reset_demo.reset off-loop with toast feedback."""
     if not _cluster_is_ready():
-        _safe_notify("Atlas cluster not ready yet — please wait.", type="warning")
+        ui.notify("Atlas cluster not ready yet — please wait.", type="warning")
         return
     if STATE["running_jobs"] > 0:
-        _safe_notify("Agent jobs in flight — try again in a moment.", type="warning")
+        ui.notify("Agent jobs in flight — try again in a moment.", type="warning")
         return
 
     # Pause the live stream while we wipe so no new tx lands mid-reset.
@@ -205,7 +182,7 @@ async def do_reset(*, keep_history: bool, do_seed: bool) -> None:
     if not do_seed:
         label = "wipe only"
     try:
-        _safe_notify(f"🔄 Resetting demo data — {label}…", type="ongoing", timeout=4000)
+        ui.notify(f"🔄 Resetting demo data — {label}…", type="ongoing", timeout=4000)
         await _run_in_pool(
             lambda: reset_demo(
                 customers=500, history_days=14,
@@ -215,10 +192,10 @@ async def do_reset(*, keep_history: bool, do_seed: bool) -> None:
         # Clear in-memory caches so the dashboard does not show stale rows.
         STATE["runs"][:] = []
         STATE["selected_case"] = None
-        _safe_notify(f"✅ Reset complete — {label}.", type="positive", timeout=5000)
+        ui.notify(f"✅ Reset complete — {label}.", type="positive", timeout=5000)
     except Exception as exc:
         log.exception("do_reset failed")
-        _safe_notify(f"❌ reset failed: {exc}", type="negative", timeout=10000)
+        ui.notify(f"❌ reset failed: {exc}", type="negative", timeout=10000)
     finally:
         STATE["running_jobs"] -= 1
         STATE["auto_run"] = prev_auto
@@ -238,18 +215,15 @@ async def stream_tick() -> None:
                     _AGENT_TIMEOUT_S)
         # Pause auto-stream so we don't pile up more hung runs.
         STATE["auto_run"] = False
-        try:
-            app.storage.user["vq_live_stream"] = False
-        except Exception:
-            pass
-        _safe_notify(
+        app.storage.user["vq_live_stream"] = False
+        ui.notify(
             f"⏱ Live stream tick timed out after {_AGENT_TIMEOUT_S}s — "
             f"auto-paused. Toggle back on after fixing.",
             type="negative", timeout=8000,
         )
     except Exception as exc:
         log.exception("stream_tick failed")
-        _safe_notify(f"⚠ stream tick failed: {exc}", type="warning", timeout=4000)
+        ui.notify(f"⚠ stream tick failed: {exc}", type="warning", timeout=4000)
     finally:
         STATE["running_jobs"] -= 1
 
