@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
+import time
 from datetime import datetime, timezone
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -80,6 +82,9 @@ def _parse_json(text: str) -> dict:
 
 def fraud_node(state: VaultIQState) -> VaultIQState:
     tx = state["transaction"]
+    tid = threading.get_ident()
+    log.info("fraud_node ENTER  tid=%s tx=%s", tid, tx.get("tx_id"))
+    t0 = time.time()
     mem = get_semantic_memory()
     recall = mem.recall(
         query=f"prior fraud episodes for customer {tx['customer_id']} amount {tx['amount']}",
@@ -87,16 +92,21 @@ def fraud_node(state: VaultIQState) -> VaultIQState:
         customer_id=tx["customer_id"],
         k=3,
     )
+    log.info("fraud_node tid=%s mem.recall done in %.2fs", tid, time.time() - t0)
     prior = "\n".join(f"- {d.page_content}" for d in recall) if recall else "(none)"
     user = (
         f"Score this transaction:\n```json\n{json.dumps(tx, default=str)}\n```\n\n"
         f"Relevant prior agent memory:\n{prior}"
     )
 
+    t1 = time.time()
     agent = _agent()
     out = agent.invoke({"messages": [SystemMessage(SYSTEM), HumanMessage(user)]})
+    log.info("fraud_node tid=%s react-agent.invoke done in %.2fs", tid, time.time() - t1)
     final = out["messages"][-1].content
     parsed = _parse_json(final if isinstance(final, str) else str(final))
+    log.info("fraud_node DONE   tid=%s tx=%s elapsed=%.2fs score=%s",
+             tid, tx.get("tx_id"), time.time() - t0, parsed.get("score"))
 
     trace = state.get("trace", []) + [{
         "ts": datetime.now(tz=timezone.utc).isoformat(),

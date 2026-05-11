@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
+import time
 from datetime import datetime, timezone
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -73,11 +75,16 @@ def _parse_json(text: str) -> dict:
 def kyc_node(state: VaultIQState) -> VaultIQState:
     tx = state["transaction"]
     fraud = state.get("fraud", {})
+    tid = threading.get_ident()
+    log.info("kyc_node ENTER  tid=%s tx=%s fraud_score=%s",
+             tid, tx.get("tx_id"), fraud.get("score"))
+    t0 = time.time()
     mem = get_semantic_memory()
     prior = mem.recall(
         query=f"verification history for customer {tx['customer_id']}",
         agent="customer_trust", customer_id=tx["customer_id"], k=3,
     )
+    log.info("kyc_node tid=%s mem.recall done in %.2fs", tid, time.time() - t0)
     prior_txt = "\n".join(f"- {d.page_content}" for d in prior) if prior else "(none)"
 
     user = (
@@ -87,10 +94,14 @@ def kyc_node(state: VaultIQState) -> VaultIQState:
         f"Prior verification memory:\n{prior_txt}"
     )
 
+    t1 = time.time()
     agent = _agent()
     out = agent.invoke({"messages": [SystemMessage(SYSTEM), HumanMessage(user)]})
+    log.info("kyc_node tid=%s react-agent.invoke done in %.2fs", tid, time.time() - t1)
     final = out["messages"][-1].content
     parsed = _parse_json(final if isinstance(final, str) else str(final))
+    log.info("kyc_node DONE   tid=%s tx=%s elapsed=%.2fs verified=%s",
+             tid, tx.get("tx_id"), time.time() - t0, parsed.get("verified"))
 
     trace = state.get("trace", []) + [{
         "ts": datetime.now(tz=timezone.utc).isoformat(),

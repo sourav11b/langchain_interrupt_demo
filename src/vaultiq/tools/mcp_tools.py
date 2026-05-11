@@ -10,7 +10,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
-from functools import lru_cache
+import threading
+import time
 from typing import Any
 
 from langchain_core.tools import BaseTool
@@ -18,6 +19,11 @@ from langchain_core.tools import BaseTool
 from ..settings import settings
 
 log = logging.getLogger(__name__)
+
+# Serializes the cold-cache MCP load so two concurrent agent threads can't
+# both spawn `npx mongodb-mcp-server` and race on stdio. lru_cache by itself
+# only caches return values — it does NOT coalesce in-flight callers.
+_MCP_LOAD_LOCK = threading.Lock()
 
 
 def _build_server_config() -> dict[str, Any]:
@@ -55,20 +61,48 @@ def _build_server_config() -> dict[str, Any]:
     }
 
 
-@lru_cache(maxsize=1)
-def get_mongodb_mcp_tools() -> list[BaseTool]:
-    """Return MCP-backed LangChain tools, or an empty list if MCP is unavailable."""
-    try:
-        from langchain_mcp_adapters.client import MultiServerMCPClient
-    except Exception as exc:  # pragma: no cover
-        log.warning("langchain_mcp_adapters not installed: %s", exc)
-        return []
+_MCP_TOOLS_CACHE: list[BaseTool] | None = None
 
-    try:
-        client = MultiServerMCPClient(_build_server_config())
-        tools = asyncio.run(client.get_tools())
-        log.info("Loaded %d MongoDB MCP tools", len(tools))
-        return tools
-    except Exception as exc:  # pragma: no cover
-        log.warning("MongoDB MCP server unavailable (%s) — continuing without it.", exc)
-        return []
+
+def get_mongodb_mcp_tools() -> list[BaseTool]:
+    """Return MCP-backed LangChain tools, or an empty list if MCP is unavailable.
+
+    Wraps the cold-cache load in a threading.Lock so concurrent agent threads
+    don't both spawn `npx mongodb-mcp-server`. Logs entry/exit + elapsed time
+    so a hang here is visible in the timeline.
+    """
+    global _MCP_TOOLS_CACHE
+    if _MCP_TOOLS_CACHE is not None:
+        return _MCP_TOOLS_CACHE
+
+    tid = threading.get_ident()
+    log.info("get_mongodb_mcp_tools ENTER  tid=%s (cold cache, acquiring lock)", tid)
+    t0 = time.time()
+    with _MCP_LOAD_LOCK:
+        if _MCP_TOOLS_CACHE is not None:
+            log.info("get_mongodb_mcp_tools tid=%s — another thread populated cache, "
+                     "returning cached (%.2fs lock-wait)", tid, time.time() - t0)
+            return _MCP_TOOLS_CACHE
+
+        try:
+            from langchain_mcp_adapters.client import MultiServerMCPClient
+        except Exception as exc:  # pragma: no cover
+            log.warning("langchain_mcp_adapters not installed: %s", exc)
+            _MCP_TOOLS_CACHE = []
+            return _MCP_TOOLS_CACHE
+
+        try:
+            log.info("get_mongodb_mcp_tools tid=%s — spawning MCP client + npx subprocess", tid)
+            t1 = time.time()
+            client = MultiServerMCPClient(_build_server_config())
+            tools = asyncio.run(client.get_tools())
+            log.info("get_mongodb_mcp_tools tid=%s — MCP client.get_tools() returned %d tools "
+                     "in %.2fs (asyncio.run total %.2fs)",
+                     tid, len(tools), time.time() - t1, time.time() - t0)
+            _MCP_TOOLS_CACHE = tools
+            return _MCP_TOOLS_CACHE
+        except Exception as exc:  # pragma: no cover
+            log.warning("MongoDB MCP server unavailable (%s) — continuing without it.", exc)
+            _MCP_TOOLS_CACHE = []
+            return _MCP_TOOLS_CACHE
+
