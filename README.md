@@ -108,6 +108,15 @@ python -m scripts.build_indexes
 # 2. Seed mock data + embed the fraud KB
 python -m scripts.seed
 
+# 2b. (optional) full reset between demos: wipes seed-side AND runtime
+#     state (transactions, agent metrics, semantic memory, LangGraph
+#     checkpoints, chat history, LLM caches), then re-runs build_indexes
+#     and seed. Always preview first with --dry-run.
+python -m scripts.reset_demo --dry-run
+python -m scripts.reset_demo                  # full wipe + reseed
+python -m scripts.reset_demo --keep-history   # preserve tx + metrics
+python -m scripts.reset_demo --no-seed        # wipe only
+
 # 3a. Smoke-test one scenario from the CLI
 python -m scripts.run_one --scenario ato_sim_swap
 
