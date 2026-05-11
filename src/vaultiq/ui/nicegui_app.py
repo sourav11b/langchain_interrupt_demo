@@ -14,6 +14,7 @@ from typing import Any
 
 from nicegui import app, ui
 
+from scripts.reset_demo import reset as reset_demo
 from src.vaultiq.db.atlas_admin import AtlasAdminError, ensure_cluster_running, get_cluster_status
 from src.vaultiq.logging_setup import configure_logging
 from src.vaultiq.scenarios.injector import SCENARIOS, build_scenario_transaction
@@ -104,6 +105,42 @@ async def inject_one(scenario_id: str) -> None:
         ui.notify(f"❌ inject failed: {exc}", type="negative", timeout=8000)
     finally:
         STATE["running_jobs"] -= 1
+
+
+async def do_reset(*, keep_history: bool, do_seed: bool) -> None:
+    """Run scripts.reset_demo.reset off-loop with toast feedback."""
+    if not _cluster_is_ready():
+        ui.notify("Atlas cluster not ready yet — please wait.", type="warning")
+        return
+    if STATE["running_jobs"] > 0:
+        ui.notify("Agent jobs in flight — try again in a moment.", type="warning")
+        return
+
+    # Pause the live stream while we wipe so no new tx lands mid-reset.
+    prev_auto = STATE.get("auto_run", False)
+    STATE["auto_run"] = False
+    STATE["running_jobs"] += 1
+    label = "wipe + reseed" + (" (keep history)" if keep_history else "")
+    if not do_seed:
+        label = "wipe only"
+    try:
+        ui.notify(f"🔄 Resetting demo data — {label}…", type="ongoing", timeout=4000)
+        await _run_in_pool(
+            lambda: reset_demo(
+                customers=500, history_days=14,
+                keep_history=keep_history, do_seed=do_seed, dry_run=False,
+            )
+        )
+        # Clear in-memory caches so the dashboard does not show stale rows.
+        STATE["runs"][:] = []
+        STATE["selected_case"] = None
+        ui.notify(f"✅ Reset complete — {label}.", type="positive", timeout=5000)
+    except Exception as exc:
+        log.exception("do_reset failed")
+        ui.notify(f"❌ reset failed: {exc}", type="negative", timeout=10000)
+    finally:
+        STATE["running_jobs"] -= 1
+        STATE["auto_run"] = prev_auto
 
 
 async def stream_tick() -> None:
@@ -278,6 +315,45 @@ def index() -> None:
                 counts_lbl.set_text(f"<error: {exc}>")
 
         ui.timer(8.0, _refresh_counts, immediate=True)
+
+        ui.separator().classes("my-4")
+        ui.label("Demo data").classes("text-sm opacity-70")
+
+        # Confirmation dialog — built once, opened on button click.
+        with ui.dialog() as reset_dialog, ui.card().classes("bg-slate-900 text-white p-4 w-96"):
+            ui.label("Reset demo data?").classes("text-lg font-semibold")
+            ui.label(
+                "Wipes 22 collections (seed fixtures + runtime: live tx, "
+                "agent metrics, semantic memory, LangGraph checkpoints, "
+                "chat history, LLM caches), then re-runs ensure_all_indexes."
+            ).classes("text-xs opacity-80 mt-1")
+            keep_hist_cb = ui.checkbox(
+                "Keep transaction history (tx + tx_geo + agent_metrics)", value=False,
+            ).classes("mt-3")
+            no_seed_cb = ui.checkbox(
+                "Wipe only — do not reload fixture data", value=False,
+            ).classes("mt-1")
+            with ui.row().classes("w-full justify-end gap-2 mt-4"):
+                ui.button("Cancel", on_click=reset_dialog.close) \
+                    .props("flat").classes("text-slate-300")
+
+                async def _confirm_reset() -> None:
+                    keep = bool(keep_hist_cb.value)
+                    seed_it = not bool(no_seed_cb.value)
+                    reset_dialog.close()
+                    await do_reset(keep_history=keep, do_seed=seed_it)
+                    await _refresh_counts()
+
+                ui.button("Reset", on_click=_confirm_reset).classes("bg-rose-600")
+
+        reset_btn = ui.button("🔄 Reset demo", on_click=reset_dialog.open) \
+            .classes("w-full mt-2 bg-slate-700")
+        reset_btn.set_enabled(False)
+
+        def _gate_reset():
+            reset_btn.set_enabled(_cluster_is_ready() and STATE["running_jobs"] == 0)
+
+        ui.timer(1.5, _gate_reset, immediate=True)
 
     # ── main grid ──────────────────────────────────────────────────────────
     with ui.row().classes("w-full no-wrap gap-4 p-4 items-stretch"):
