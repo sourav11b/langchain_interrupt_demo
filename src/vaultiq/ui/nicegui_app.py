@@ -36,6 +36,42 @@ configure_logging()
 log = logging.getLogger(__name__)
 
 
+# ── NiceGUI 3.11 timer-after-slot-deletion guard ────────────────────────────
+# When a client disconnects (tab close, ws reconnect, hot-reload) NiceGUI GCs
+# its slots but lets timers from that client keep firing. The first call after
+# slot deletion raises `RuntimeError: The parent slot of the element has been
+# deleted.` from inside `Timer._get_context`, which kills our render loops
+# (e.g. render_runs → live tx feed stops repainting until a hard refresh).
+# Patch `_get_context` to deactivate the orphaned timer instead of raising.
+def _install_safe_timer_patch() -> None:
+    from contextlib import nullcontext
+    from nicegui.elements.timer import Timer
+
+    if getattr(Timer, "_vq_safe_patch", False):
+        return
+
+    _orig_get_context = Timer._get_context
+
+    def _safe_get_context(self):
+        try:
+            return _orig_get_context(self)
+        except RuntimeError as exc:
+            if "parent slot" in str(exc).lower():
+                try:
+                    self.deactivate()
+                except Exception:
+                    pass
+                return nullcontext()
+            raise
+
+    Timer._get_context = _safe_get_context  # type: ignore[method-assign]
+    Timer._vq_safe_patch = True             # type: ignore[attr-defined]
+    log.info("nicegui Timer._get_context patched (slot-deletion guard active)")
+
+
+_install_safe_timer_patch()
+
+
 # ── process-wide state (single-tenant demo) ──────────────────────────────────
 STATE: dict = {
     "runs": [],            # newest first, list of {tx, result}
