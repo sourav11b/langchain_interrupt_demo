@@ -25,6 +25,7 @@ from src.vaultiq.ui import agent_detail as _agent_detail  # noqa: F401  register
 from src.vaultiq.ui import storage_detail as _storage_detail  # noqa: F401  registers /storage
 from src.vaultiq.ui import case_flow as _case_flow  # noqa: F401  registers /case/{id}
 from src.vaultiq.ui import agent_step as _agent_step  # noqa: F401  registers /agent_step/{cid}/{stage}
+from src.vaultiq.ui import architecture_flow as _arch_flow  # noqa: F401  registers /architecture
 from src.vaultiq.ui.stream_runner import (
     execute_through_agents,
     fetch_collection_counts,
@@ -389,6 +390,14 @@ def index() -> None:
                 app.storage.user["vq_live_stream"] = False
 
         ui.timer(1.5, _gate_controls, immediate=True)
+
+        ui.separator().classes("my-4")
+        ui.label("Explore").classes("text-sm opacity-70")
+        with ui.row().classes("gap-2 flex-wrap"):
+            ui.link("🎬 Architecture animation", "/architecture",
+                    new_tab=True).classes("text-xs")
+            ui.link("🗄 PolyStorage", "/storage",
+                    new_tab=True).classes("text-xs")
 
         ui.separator().classes("my-4")
         ui.label("MongoDB collections").classes("text-sm opacity-70")
